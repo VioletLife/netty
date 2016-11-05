@@ -24,12 +24,12 @@ import io.netty.handler.codec.ReplayingDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 import io.netty.handler.codec.stomp.StompSubframeDecoder.State;
 import io.netty.util.internal.AppendableCharSequence;
-import io.netty.util.internal.StringUtil;
 
 import java.util.List;
 import java.util.Locale;
 
-import static io.netty.buffer.ByteBufUtil.*;
+import static io.netty.buffer.ByteBufUtil.indexOf;
+import static io.netty.buffer.ByteBufUtil.readBytes;
 
 /**
  * Decodes {@link ByteBuf}s into {@link StompHeadersSubframe}s and
@@ -73,7 +73,7 @@ public class StompSubframeDecoder extends ReplayingDecoder<State> {
     private final int maxChunkSize;
     private int alreadyReadChunkSize;
     private LastStompContentSubframe lastContent;
-    private long contentLength;
+    private long contentLength = -1;
 
     public StompSubframeDecoder() {
         this(DEFAULT_MAX_LINE_LENGTH, DEFAULT_CHUNK_SIZE);
@@ -134,21 +134,39 @@ public class StompSubframeDecoder extends ReplayingDecoder<State> {
                     if (toRead > maxChunkSize) {
                         toRead = maxChunkSize;
                     }
-                    int remainingLength = (int) (contentLength - alreadyReadChunkSize);
-                    if (toRead > remainingLength) {
-                        toRead = remainingLength;
-                    }
-                    ByteBuf chunkBuffer = readBytes(ctx.alloc(), in, toRead);
-                    if ((alreadyReadChunkSize += toRead) >= contentLength) {
-                        lastContent = new DefaultLastStompContentSubframe(chunkBuffer);
-                        checkpoint(State.FINALIZE_FRAME_READ);
+                    if (this.contentLength >= 0) {
+                        int remainingLength = (int) (contentLength - alreadyReadChunkSize);
+                        if (toRead > remainingLength) {
+                            toRead = remainingLength;
+                        }
+                        ByteBuf chunkBuffer = readBytes(ctx.alloc(), in, toRead);
+                        if ((alreadyReadChunkSize += toRead) >= contentLength) {
+                            lastContent = new DefaultLastStompContentSubframe(chunkBuffer);
+                            checkpoint(State.FINALIZE_FRAME_READ);
+                        } else {
+                            out.add(new DefaultStompContentSubframe(chunkBuffer));
+                            return;
+                        }
                     } else {
-                        DefaultStompContentSubframe chunk;
-                        chunk = new DefaultStompContentSubframe(chunkBuffer);
-                        out.add(chunk);
-                    }
-                    if (alreadyReadChunkSize < contentLength) {
-                        return;
+                        int nulIndex = indexOf(in, in.readerIndex(), in.writerIndex(), StompConstants.NUL);
+                        if (nulIndex == in.readerIndex()) {
+                            checkpoint(State.FINALIZE_FRAME_READ);
+                        } else {
+                            if (nulIndex > 0) {
+                                toRead = nulIndex - in.readerIndex();
+                            } else {
+                                toRead = in.writerIndex() - in.readerIndex();
+                            }
+                            ByteBuf chunkBuffer = readBytes(ctx.alloc(), in, toRead);
+                            alreadyReadChunkSize += toRead;
+                            if (nulIndex > 0) {
+                                lastContent = new DefaultLastStompContentSubframe(chunkBuffer);
+                                checkpoint(State.FINALIZE_FRAME_READ);
+                            } else {
+                                out.add(new DefaultStompContentSubframe(chunkBuffer));
+                                return;
+                            }
+                        }
                     }
                     // Fall through.
                 case FINALIZE_FRAME_READ:
@@ -193,33 +211,28 @@ public class StompSubframeDecoder extends ReplayingDecoder<State> {
         for (;;) {
             String line = readLine(buffer, maxLineLength);
             if (!line.isEmpty()) {
-                String[] split = StringUtil.split(line, ':');
+                String[] split = line.split(":");
                 if (split.length == 2) {
                     headers.add(split[0], split[1]);
                 }
             } else {
-                long contentLength = -1;
                 if (headers.contains(StompHeaders.CONTENT_LENGTH))  {
-                    contentLength = getContentLength(headers, 0);
-                } else {
-                    int globalIndex = indexOf(buffer, buffer.readerIndex(),
-                            buffer.writerIndex(), StompConstants.NUL);
-                    if (globalIndex != -1) {
-                        contentLength = globalIndex - buffer.readerIndex();
+                    this.contentLength = getContentLength(headers, 0);
+                    if (this.contentLength == 0) {
+                        return State.FINALIZE_FRAME_READ;
                     }
                 }
-                if (contentLength > 0) {
-                    this.contentLength = contentLength;
-                    return State.READ_CONTENT;
-                } else {
-                    return State.FINALIZE_FRAME_READ;
-                }
+                return State.READ_CONTENT;
             }
         }
     }
 
     private static long getContentLength(StompHeaders headers, long defaultValue) {
-        return headers.getLong(StompHeaders.CONTENT_LENGTH, defaultValue);
+        long contentLength = headers.getLong(StompHeaders.CONTENT_LENGTH, defaultValue);
+        if (contentLength < 0) {
+            throw new DecoderException(StompHeaders.CONTENT_LENGTH + " must be non-negative");
+        }
+        return contentLength;
     }
 
     private static void skipNullCharacter(ByteBuf buffer) {
@@ -264,7 +277,7 @@ public class StompSubframeDecoder extends ReplayingDecoder<State> {
 
     private void resetDecoder() {
         checkpoint(State.SKIP_CONTROL_CHARACTERS);
-        contentLength = 0;
+        contentLength = -1;
         alreadyReadChunkSize = 0;
         lastContent = null;
     }

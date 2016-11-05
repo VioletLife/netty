@@ -32,6 +32,7 @@ import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyShort;
 import static org.mockito.Matchers.eq;
+import static org.mockito.Matchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
@@ -69,6 +70,7 @@ public class DefaultHttp2ConnectionDecoderTest {
     private static final int STREAM_DEPENDENCY_ID = 5;
 
     private Http2ConnectionDecoder decoder;
+    private ChannelPromise promise;
 
     @Mock
     private Http2Connection connection;
@@ -90,8 +92,6 @@ public class DefaultHttp2ConnectionDecoderTest {
 
     @Mock
     private Channel channel;
-
-    private ChannelPromise promise;
 
     @Mock
     private ChannelFuture future;
@@ -151,8 +151,9 @@ public class DefaultHttp2ConnectionDecoderTest {
         when(ctx.newPromise()).thenReturn(promise);
         when(ctx.write(any())).thenReturn(future);
 
-        decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader, listener);
+        decoder = new DefaultHttp2ConnectionDecoder(connection, encoder, reader);
         decoder.lifecycleManager(lifecycleManager);
+        decoder.frameListener(listener);
 
         // Simulate receiving the initial settings from the remote endpoint.
         decode().onSettingsRead(ctx, new Http2Settings());
@@ -177,8 +178,8 @@ public class DefaultHttp2ConnectionDecoderTest {
         mockFlowControl(processedBytes);
         try {
             decode().onDataRead(ctx, STREAM_ID, data, padding, true);
-            verify(localFlow).receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(padding), eq(true));
-            verify(localFlow).consumeBytes(eq(ctx), eq(stream), eq(processedBytes));
+            verify(localFlow).receiveFlowControlledFrame(eq(stream), eq(data), eq(padding), eq(true));
+            verify(localFlow).consumeBytes(eq(stream), eq(processedBytes));
 
             // Verify that the event was absorbed and not propagated to the observer.
             verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
@@ -197,8 +198,8 @@ public class DefaultHttp2ConnectionDecoderTest {
         mockFlowControl(processedBytes);
         try {
             decode().onDataRead(ctx, STREAM_ID, data, padding, true);
-            verify(localFlow).receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(padding), eq(true));
-            verify(localFlow).consumeBytes(eq(ctx), eq(stream), eq(processedBytes));
+            verify(localFlow).receiveFlowControlledFrame(eq(stream), eq(data), eq(padding), eq(true));
+            verify(localFlow).consumeBytes(eq(stream), eq(processedBytes));
 
             // Verify that the event was absorbed and not propagated to the observer.
             verify(listener).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
@@ -219,8 +220,9 @@ public class DefaultHttp2ConnectionDecoderTest {
         } finally {
             try {
                 verify(localFlow)
-                        .receiveFlowControlledFrame(eq(ctx), eq((Http2Stream) null), eq(data), eq(padding), eq(true));
-                verify(localFlow).consumeBytes(eq(ctx), eq((Http2Stream) null), eq(processedBytes));
+                        .receiveFlowControlledFrame(eq((Http2Stream) null), eq(data), eq(padding), eq(true));
+                verify(localFlow).consumeBytes(eq((Http2Stream) null), eq(processedBytes));
+                verify(localFlow).frameWriter(any(Http2FrameWriter.class));
                 verifyNoMoreInteractions(localFlow);
                 verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
             } finally {
@@ -236,14 +238,19 @@ public class DefaultHttp2ConnectionDecoderTest {
         int padding = 10;
         int processedBytes = data.readableBytes() + padding;
         try {
-            decode().onDataRead(ctx, STREAM_ID, data, padding, true);
-            verify(localFlow)
-                    .receiveFlowControlledFrame(eq(ctx), eq((Http2Stream) null), eq(data), eq(padding), eq(true));
-            verify(localFlow).consumeBytes(eq(ctx), eq((Http2Stream) null), eq(processedBytes));
-            verifyNoMoreInteractions(localFlow);
+            try {
+                decode().onDataRead(ctx, STREAM_ID, data, padding, true);
+                fail();
+            } catch (Http2Exception e) {
+                verify(localFlow)
+                        .receiveFlowControlledFrame(eq((Http2Stream) null), eq(data), eq(padding), eq(true));
+                verify(localFlow).consumeBytes(eq((Http2Stream) null), eq(processedBytes));
+                verify(localFlow).frameWriter(any(Http2FrameWriter.class));
+                verifyNoMoreInteractions(localFlow);
 
-            // Verify that the event was absorbed and not propagated to the observer.
-            verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
+                // Verify that the event was absorbed and not propagated to the observer.
+                verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
+            }
         } finally {
             data.release();
         }
@@ -256,10 +263,10 @@ public class DefaultHttp2ConnectionDecoderTest {
         mockFlowControl(0);
         try {
             decode().onDataRead(ctx, STREAM_ID, data, padding, true);
-            verify(localFlow).receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(padding), eq(true));
+            verify(localFlow).receiveFlowControlledFrame(eq(stream), eq(data), eq(padding), eq(true));
 
             // Now we ignore the empty bytes inside consumeBytes method, so it will be called once.
-            verify(localFlow).consumeBytes(eq(ctx), eq(stream), eq(0));
+            verify(localFlow).consumeBytes(eq(stream), eq(0));
 
             // Verify that the empty data event was propagated to the observer.
             verify(listener).onDataRead(eq(ctx), eq(STREAM_ID), eq(data), eq(padding), eq(true));
@@ -288,7 +295,22 @@ public class DefaultHttp2ConnectionDecoderTest {
         final ByteBuf data = dummyData();
         try {
             decode().onDataRead(ctx, STREAM_ID, data, 10, true);
-            verify(localFlow).receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(10), eq(true));
+            verify(localFlow).receiveFlowControlledFrame(eq(stream), eq(data), eq(10), eq(true));
+            verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
+        } finally {
+            data.release();
+        }
+    }
+
+    @Test
+    public void dataReadAfterGoAwaySentOnUknownStreamShouldIgnore() throws Exception {
+        // Throw an exception when checking stream state.
+        when(connection.stream(STREAM_ID)).thenReturn(null);
+        mockGoAwaySent();
+        final ByteBuf data = dummyData();
+        try {
+            decode().onDataRead(ctx, STREAM_ID, data, 10, true);
+            verify(localFlow).receiveFlowControlledFrame((Http2Stream) isNull(), eq(data), eq(10), eq(true));
             verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
         } finally {
             data.release();
@@ -303,7 +325,7 @@ public class DefaultHttp2ConnectionDecoderTest {
         final ByteBuf data = dummyData();
         try {
             decode().onDataRead(ctx, STREAM_ID, data, 10, true);
-            verify(localFlow).receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(10), eq(true));
+            verify(localFlow).receiveFlowControlledFrame(eq(stream), eq(data), eq(10), eq(true));
             verify(listener, never()).onDataRead(eq(ctx), anyInt(), any(ByteBuf.class), anyInt(), anyBoolean());
         } finally {
             data.release();
@@ -315,7 +337,7 @@ public class DefaultHttp2ConnectionDecoderTest {
         final ByteBuf data = dummyData();
         try {
             decode().onDataRead(ctx, STREAM_ID, data, 10, true);
-            verify(localFlow).receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(10), eq(true));
+            verify(localFlow).receiveFlowControlledFrame(eq(stream), eq(data), eq(10), eq(true));
             verify(lifecycleManager).closeStreamRemote(eq(stream), eq(future));
             verify(listener).onDataRead(eq(ctx), eq(STREAM_ID), eq(data), eq(10), eq(true));
         } finally {
@@ -337,19 +359,19 @@ public class DefaultHttp2ConnectionDecoderTest {
         doAnswer(new Answer<Void>() {
             @Override
             public Void answer(InvocationOnMock in) throws Throwable {
-                int delta = (Integer) in.getArguments()[2];
+                int delta = (Integer) in.getArguments()[1];
                 int newValue = unprocessed.addAndGet(-delta);
                 if (newValue < 0) {
                     throw new RuntimeException("Returned too many bytes");
                 }
                 return null;
             }
-        }).when(localFlow).consumeBytes(eq(ctx), eq(stream), anyInt());
+        }).when(localFlow).consumeBytes(eq(stream), anyInt());
         // When the listener callback is called, process a few bytes and then throw.
         doAnswer(new Answer<Integer>() {
             @Override
             public Integer answer(InvocationOnMock in) throws Throwable {
-                localFlow.consumeBytes(ctx, stream, 4);
+                localFlow.consumeBytes(stream, 4);
                 throw new RuntimeException("Fake Exception");
             }
         }).when(listener).onDataRead(eq(ctx), eq(STREAM_ID), any(ByteBuf.class), eq(10), eq(true));
@@ -358,7 +380,7 @@ public class DefaultHttp2ConnectionDecoderTest {
             fail("Expected exception");
         } catch (RuntimeException cause) {
             verify(localFlow)
-                    .receiveFlowControlledFrame(eq(ctx), eq(stream), eq(data), eq(padding), eq(true));
+                    .receiveFlowControlledFrame(eq(stream), eq(data), eq(padding), eq(true));
             verify(lifecycleManager).closeStreamRemote(eq(stream), eq(future));
             verify(listener).onDataRead(eq(ctx), eq(STREAM_ID), eq(data), eq(padding), eq(true));
             assertEquals(0, localFlow.unconsumedBytes(stream));
@@ -367,21 +389,30 @@ public class DefaultHttp2ConnectionDecoderTest {
         }
     }
 
-    @Test
-    public void headersReadAfterGoAwayShouldBeIgnored() throws Exception {
-        when(connection.goAwaySent()).thenReturn(true);
+    @Test(expected = Http2Exception.class)
+    public void headersReadForUnknownStreamShouldThrow() throws Exception {
+        when(connection.stream(STREAM_ID)).thenReturn(null);
         decode().onHeadersRead(ctx, STREAM_ID, EmptyHttp2Headers.INSTANCE, 0, false);
-        verify(remote, never()).createIdleStream(eq(STREAM_ID));
+    }
+
+    @Test
+    public void headersReadForStreamThatAlreadySentResetShouldBeIgnored() throws Exception {
+        when(stream.isResetSent()).thenReturn(true);
+        decode().onHeadersRead(ctx, STREAM_ID, EmptyHttp2Headers.INSTANCE, 0, false);
+        verify(remote, never()).createIdleStream(anyInt());
+        verify(remote, never()).createStream(anyInt(), anyBoolean());
         verify(stream, never()).open(anyBoolean());
 
         // Verify that the event was absorbed and not propagated to the oberver.
         verify(listener, never()).onHeadersRead(eq(ctx), anyInt(), any(Http2Headers.class), anyInt(), anyBoolean());
         verify(remote, never()).createIdleStream(anyInt());
+        verify(remote, never()).createStream(anyInt(), anyBoolean());
         verify(stream, never()).open(anyBoolean());
     }
 
     @Test
-    public void headersReadForUnknownStreamShouldBeIgnored() throws Exception {
+    public void headersReadForUnknownStreamAfterGoAwayShouldBeIgnored() throws Exception {
+        mockGoAwaySent();
         when(connection.stream(STREAM_ID)).thenReturn(null);
         decode().onHeadersRead(ctx, STREAM_ID, EmptyHttp2Headers.INSTANCE, 0, false);
         verify(remote, never()).createStream(anyInt(), anyBoolean());
@@ -559,7 +590,7 @@ public class DefaultHttp2ConnectionDecoderTest {
     public void windowUpdateReadAfterGoAwaySentShouldBeIgnored() throws Exception {
         mockGoAwaySent();
         decode().onWindowUpdateRead(ctx, STREAM_ID, 10);
-        verify(remoteFlow, never()).incrementWindowSize(eq(ctx), any(Http2Stream.class), anyInt());
+        verify(remoteFlow, never()).incrementWindowSize(any(Http2Stream.class), anyInt());
         verify(listener, never()).onWindowUpdateRead(eq(ctx), anyInt(), anyInt());
     }
 
@@ -567,7 +598,7 @@ public class DefaultHttp2ConnectionDecoderTest {
     public void windowUpdateReadAfterGoAwaySentShouldAllowFramesForStreamCreatedByLocalEndpoint() throws Exception {
         mockGoAwaySentShouldAllowFramesForStreamCreatedByLocalEndpoint();
         decode().onWindowUpdateRead(ctx, STREAM_ID, 10);
-        verify(remoteFlow).incrementWindowSize(eq(ctx), any(Http2Stream.class), anyInt());
+        verify(remoteFlow).incrementWindowSize(any(Http2Stream.class), anyInt());
         verify(listener).onWindowUpdateRead(eq(ctx), anyInt(), anyInt());
     }
 
@@ -582,14 +613,14 @@ public class DefaultHttp2ConnectionDecoderTest {
     public void windowUpdateReadForUnknownStreamShouldBeIgnored() throws Exception {
         when(connection.stream(STREAM_ID)).thenReturn(null);
         decode().onWindowUpdateRead(ctx, STREAM_ID, 10);
-        verify(remoteFlow, never()).incrementWindowSize(eq(ctx), any(Http2Stream.class), anyInt());
+        verify(remoteFlow, never()).incrementWindowSize(any(Http2Stream.class), anyInt());
         verify(listener, never()).onWindowUpdateRead(eq(ctx), anyInt(), anyInt());
     }
 
     @Test
     public void windowUpdateReadShouldSucceed() throws Exception {
         decode().onWindowUpdateRead(ctx, STREAM_ID, 10);
-        verify(remoteFlow).incrementWindowSize(eq(ctx), eq(stream), eq(10));
+        verify(remoteFlow).incrementWindowSize(eq(stream), eq(10));
         verify(listener).onWindowUpdateRead(eq(ctx), eq(STREAM_ID), eq(10));
     }
 
@@ -599,6 +630,13 @@ public class DefaultHttp2ConnectionDecoderTest {
         decode().onRstStreamRead(ctx, STREAM_ID, PROTOCOL_ERROR.code());
         verify(lifecycleManager).closeStream(eq(stream), eq(future));
         verify(listener).onRstStreamRead(eq(ctx), anyInt(), anyLong());
+    }
+
+    @Test(expected = Http2Exception.class)
+    public void goawayIncreasedLastStreamIdShouldThrow() throws Exception {
+        when(local.lastStreamKnownByPeer()).thenReturn(1);
+        when(connection.goAwayReceived()).thenReturn(true);
+        decode().onGoAwayRead(ctx, 3, 2L, EMPTY_BUFFER);
     }
 
     @Test(expected = Http2Exception.class)

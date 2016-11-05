@@ -16,10 +16,14 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.Promise;
+import io.netty.util.internal.UnstableApi;
 
 /**
  * Manager for the state of an HTTP/2 connection with the remote end-point.
  */
+@UnstableApi
 public interface Http2Connection {
     /**
      * Listener for life-cycle events for streams in this connection.
@@ -138,12 +142,11 @@ public interface Http2Connection {
      * A view of the connection from one endpoint (local or remote).
      */
     interface Endpoint<F extends Http2FlowController> {
-
         /**
-         * Returns the next valid streamId for this endpoint. If negative, the stream IDs are
+         * Increment and get the next generated stream id this endpoint. If negative, the stream IDs are
          * exhausted for this endpoint an no further streams may be created.
          */
-        int nextStreamId();
+        int incrementAndGetNextStreamId();
 
         /**
          * Indicates whether the given streamId is from the set of IDs used by this endpoint to
@@ -158,20 +161,26 @@ public interface Http2Connection {
         boolean mayHaveCreatedStream(int streamId);
 
         /**
-         * Indicates whether or not this endpoint is currently allowed to create new streams. This will be
-         * be false if {@link #numActiveStreams()} + 1 >= {@link #maxActiveStreams()} or if the stream IDs
-         * for this endpoint have been exhausted (i.e. {@link #nextStreamId()} < 0).
+         * Indicates whether or not this endpoint created the given stream.
          */
-        boolean canCreateStream();
+        boolean created(Http2Stream stream);
+
+        /**
+         * Indicates whether or a stream created by this endpoint can be opened without violating
+         * {@link #maxActiveStreams()}.
+         */
+        boolean canOpenStream();
 
         /**
          * Creates a stream initiated by this endpoint. This could fail for the following reasons:
          * <ul>
          * <li>The requested stream ID is not the next sequential ID for this endpoint.</li>
          * <li>The stream already exists.</li>
-         * <li>{@link #canCreateStream()} is {@code false}.</li>
          * <li>The connection is marked as going away.</li>
          * </ul>
+         * <p>
+         * Note that IDLE streams can always be created so long as there are stream IDs available.
+         * The {@link #numActiveStreams()} will be enforced upon attempting to open the stream.
          * <p>
          * If the stream is intended to initialized to {@link Http2Stream.State#OPEN} then use
          * {@link #createStream(int, boolean)} otherwise optimizations in {@link Listener}s may not work
@@ -186,7 +195,7 @@ public interface Http2Connection {
          * <ul>
          * <li>The requested stream ID is not the next sequential ID for this endpoint.</li>
          * <li>The stream already exists.</li>
-         * <li>{@link #canCreateStream()} is {@code false}.</li>
+         * <li>{@link #canOpenStream()} is {@code false}.</li>
          * <li>The connection is marked as going away.</li>
          * </ul>
          * <p>
@@ -223,12 +232,15 @@ public interface Http2Connection {
         boolean isServer();
 
         /**
-         * Sets whether server push is allowed to this endpoint.
+         * This is the <a href="https://tools.ietf.org/html/rfc7540#section-6.5.2">SETTINGS_ENABLE_PUSH</a> value sent
+         * from the opposite endpoint. This method should only be called by Netty (not users) as a result of a
+         * receiving a {@code SETTINGS} frame.
          */
         void allowPushTo(boolean allow);
 
         /**
-         * Gets whether or not server push is allowed to this endpoint. This is always false
+         * This is the <a href="https://tools.ietf.org/html/rfc7540#section-6.5.2">SETTINGS_ENABLE_PUSH</a> value sent
+         * from the opposite endpoint. The initial value must be {@code true} for the client endpoint and always false
          * for a server endpoint.
          */
         boolean allowPushTo();
@@ -241,17 +253,32 @@ public interface Http2Connection {
 
         /**
          * Gets the maximum number of streams (created by this endpoint) that are allowed to be active at
-         * the same time. This is the {@code SETTINGS_MAX_CONCURRENT_STREAMS} value sent from the opposite endpoint to
-         * restrict stream creation by this endpoint.
+         * the same time. This is the
+         * <a href="https://tools.ietf.org/html/rfc7540#section-6.5.2">SETTINGS_MAX_CONCURRENT_STREAMS</a>
+         * value sent from the opposite endpoint to restrict stream creation by this endpoint.
+         * <p>
+         * The default value returned by this method must be "unlimited".
          */
         int maxActiveStreams();
 
         /**
-         * Sets the maximum number of streams (created by this endpoint) that are allowed to be active at once.
-         * This is the {@code SETTINGS_MAX_CONCURRENT_STREAMS} value sent from the opposite endpoint to
-         * restrict stream creation by this endpoint.
+         * The limit imposed by {@link #maxActiveStreams()} does not apply to streams in the IDLE state. Since IDLE
+         * streams can still consume resources this limit will include streams in all states.
+         * @return The maximum number of streams that can exist at any given time.
          */
-        void maxActiveStreams(int maxActiveStreams);
+        int maxStreams();
+
+        /**
+         * Sets the limit for {@code SETTINGS_MAX_CONCURRENT_STREAMS} and the limit for {@link #maxStreams()}.
+         * @param maxActiveStreams The maximum number of streams (created by this endpoint) that are allowed to be
+         * active at once. This is the
+         * <a href="https://tools.ietf.org/html/rfc7540#section-6.5.2">SETTINGS_MAX_CONCURRENT_STREAMS</a> value sent
+         * from the opposite endpoint to restrict stream creation by this endpoint.
+         * @param maxStreams The limit imposed by {@link #maxActiveStreams()} does not apply to streams in the IDLE
+         * state. Since IDLE streams can still consume resources this limit will include streams in all states.
+         * @throws Http2Exception if {@code maxStreams < maxActiveStream}.
+         */
+        void maxStreams(int maxActiveStreams, int maxStreams) throws Http2Exception;
 
         /**
          * Gets the ID of the stream last successfully created by this endpoint.
@@ -285,6 +312,16 @@ public interface Http2Connection {
      */
     interface PropertyKey {
     }
+
+    /**
+     * Close this connection. No more new streams can be created after this point and
+     * all streams that exists (active or otherwise) will be closed and removed.
+     * <p>Note if iterating active streams via {@link #forEachActiveStream(Http2StreamVisitor)} and an exception is
+     * thrown it is necessary to call this method again to ensure the close completes.
+     * @param promise Will be completed when all streams have been removed, and listeners have been notified.
+     * @return A future that will be completed when all streams have been removed, and listeners have been notified.
+     */
+    Future<Void> close(Promise<Void> promise);
 
     /**
      * Creates a new key that is unique within this {@link Http2Connection}.

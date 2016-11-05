@@ -16,10 +16,12 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.util.internal.UnstableApi;
 
 /**
  * Decodes HPACK-encoded headers blocks into {@link Http2Headers}.
  */
+@UnstableApi
 public interface Http2HeadersDecoder {
     /**
      * Configuration related elements for the {@link Http2HeadersDecoder} interface
@@ -29,17 +31,12 @@ public interface Http2HeadersDecoder {
          * Access the Http2HeaderTable for this {@link Http2HeadersDecoder}
          */
         Http2HeaderTable headerTable();
-
-        /**
-         * Get the maximum number of bytes that is allowed before truncation occurs.
-         */
-        int maxHeaderSize();
     }
 
     /**
      * Decodes the given headers block and returns the headers.
      */
-    Http2Headers decodeHeaders(ByteBuf headerBlock) throws Http2Exception;
+    Http2Headers decodeHeaders(int streamId, ByteBuf headerBlock) throws Http2Exception;
 
     /**
      * Get the {@link Configuration} for this {@link Http2HeadersDecoder}

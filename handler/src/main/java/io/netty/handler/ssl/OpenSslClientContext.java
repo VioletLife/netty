@@ -16,29 +16,33 @@
 package io.netty.handler.ssl;
 
 import org.apache.tomcat.jni.SSL;
-import org.apache.tomcat.jni.SSLContext;
+
+import java.io.File;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509ExtendedTrustManager;
-import javax.net.ssl.X509TrustManager;
-import java.io.File;
-import java.security.KeyStore;
-import java.security.cert.X509Certificate;
+
+import static io.netty.handler.ssl.ReferenceCountedOpenSslClientContext.newSessionContext;
 
 /**
  * A client-side {@link SslContext} which uses OpenSSL's SSL/TLS implementation.
+ * <p>This class will use a finalizer to ensure native resources are automatically cleaned up. To avoid finalizers
+ * and manually release the native memory see {@link ReferenceCountedOpenSslClientContext}.
  */
 public final class OpenSslClientContext extends OpenSslContext {
     private final OpenSslSessionContext sessionContext;
 
     /**
      * Creates a new instance.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslClientContext() throws SSLException {
-        this(null, null, null, null, null, null, null, IdentityCipherSuiteFilter.INSTANCE, null, 0, 0);
+        this((File) null, null, null, null, null, null, null, IdentityCipherSuiteFilter.INSTANCE, null, 0, 0);
     }
 
     /**
@@ -46,7 +50,9 @@ public final class OpenSslClientContext extends OpenSslContext {
      *
      * @param certChainFile an X.509 certificate chain file in PEM format.
      *                      {@code null} to use the system default
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslClientContext(File certChainFile) throws SSLException {
         this(certChainFile, null);
     }
@@ -57,7 +63,9 @@ public final class OpenSslClientContext extends OpenSslContext {
      * @param trustManagerFactory the {@link TrustManagerFactory} that provides the {@link TrustManager}s
      *                            that verifies the certificates sent from servers.
      *                            {@code null} to use the default.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslClientContext(TrustManagerFactory trustManagerFactory) throws SSLException {
         this(null, trustManagerFactory);
     }
@@ -70,16 +78,15 @@ public final class OpenSslClientContext extends OpenSslContext {
      * @param trustManagerFactory the {@link TrustManagerFactory} that provides the {@link TrustManager}s
      *                            that verifies the certificates sent from servers.
      *                            {@code null} to use the default.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslClientContext(File certChainFile, TrustManagerFactory trustManagerFactory) throws SSLException {
         this(certChainFile, trustManagerFactory, null, null, null, null, null,
              IdentityCipherSuiteFilter.INSTANCE, null, 0, 0);
     }
 
     /**
-     * @deprecated use {@link #OpenSslClientContext(File, TrustManagerFactory, Iterable,
-     *             CipherSuiteFilter, ApplicationProtocolConfig, long, long)}
-     *
      * Creates a new instance.
      *
      * @param certChainFile an X.509 certificate chain file in PEM format
@@ -93,6 +100,7 @@ public final class OpenSslClientContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslClientContext(File certChainFile, TrustManagerFactory trustManagerFactory, Iterable<String> ciphers,
@@ -103,9 +111,6 @@ public final class OpenSslClientContext extends OpenSslContext {
     }
 
     /**
-     * @deprecated use {@link #OpenSslClientContext(File, TrustManagerFactory, File, File, String,
-     * KeyManagerFactory, Iterable, CipherSuiteFilter, ApplicationProtocolConfig,long, long)}
-     *
      * Creates a new instance.
      *
      * @param certChainFile an X.509 certificate chain file in PEM format
@@ -120,6 +125,7 @@ public final class OpenSslClientContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslClientContext(File certChainFile, TrustManagerFactory trustManagerFactory, Iterable<String> ciphers,
@@ -131,11 +137,12 @@ public final class OpenSslClientContext extends OpenSslContext {
 
     /**
      * Creates a new instance.
-     * @param trustCertChainFile an X.509 certificate chain file in PEM format.
+     * @param trustCertCollectionFile an X.509 certificate collection file in PEM format.
      *                      {@code null} to use the system default
      * @param trustManagerFactory the {@link TrustManagerFactory} that provides the {@link TrustManager}s
      *                            that verifies the certificates sent from servers.
-     *                            {@code null} to use the default or the results of parsing {@code trustCertChainFile}
+     *                            {@code null} to use the default or the results of parsing
+     *                            {@code trustCertCollectionFile}
      * @param keyCertChainFile an X.509 certificate chain file in PEM format.
      *                      This provides the public key for mutual authentication.
      *                      {@code null} to use the system default
@@ -157,102 +164,36 @@ public final class OpenSslClientContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
-    public OpenSslClientContext(File trustCertChainFile, TrustManagerFactory trustManagerFactory,
+    @Deprecated
+    public OpenSslClientContext(File trustCertCollectionFile, TrustManagerFactory trustManagerFactory,
                                 File keyCertChainFile, File keyFile, String keyPassword,
                                 KeyManagerFactory keyManagerFactory, Iterable<String> ciphers,
                                 CipherSuiteFilter cipherFilter, ApplicationProtocolConfig apn,
                                 long sessionCacheSize, long sessionTimeout)
             throws SSLException {
-        super(ciphers, cipherFilter, apn, sessionCacheSize, sessionTimeout, SSL.SSL_MODE_CLIENT);
+        this(toX509CertificatesInternal(trustCertCollectionFile), trustManagerFactory,
+                toX509CertificatesInternal(keyCertChainFile), toPrivateKeyInternal(keyFile, keyPassword),
+                keyPassword, keyManagerFactory, ciphers, cipherFilter, apn, sessionCacheSize, sessionTimeout);
+    }
+
+    OpenSslClientContext(X509Certificate[] trustCertCollection, TrustManagerFactory trustManagerFactory,
+                         X509Certificate[] keyCertChain, PrivateKey key, String keyPassword,
+                                KeyManagerFactory keyManagerFactory, Iterable<String> ciphers,
+                                CipherSuiteFilter cipherFilter, ApplicationProtocolConfig apn,
+                                long sessionCacheSize, long sessionTimeout)
+            throws SSLException {
+        super(ciphers, cipherFilter, apn, sessionCacheSize, sessionTimeout, SSL.SSL_MODE_CLIENT, keyCertChain,
+                ClientAuth.NONE, false);
         boolean success = false;
         try {
-            if (trustCertChainFile != null && !trustCertChainFile.isFile()) {
-                throw new IllegalArgumentException("trustCertChainFile is not a file: " + trustCertChainFile);
-            }
-
-            if (keyCertChainFile != null && !keyCertChainFile.isFile()) {
-                throw new IllegalArgumentException("keyCertChainFile is not a file: " + keyCertChainFile);
-            }
-
-            if (keyFile != null && !keyFile.isFile()) {
-                throw new IllegalArgumentException("keyFile is not a file: " + keyFile);
-            }
-            if (keyFile == null && keyCertChainFile != null || keyFile != null && keyCertChainFile == null) {
-                throw new IllegalArgumentException(
-                        "Either both keyCertChainFile and keyFile needs to be null or none of them");
-            }
-            synchronized (OpenSslContext.class) {
-                if (trustCertChainFile != null) {
-                    /* Load the certificate chain. We must NOT skip the first cert when client mode */
-                    if (!SSLContext.setCertificateChainFile(ctx, trustCertChainFile.getPath(), false)) {
-                        long error = SSL.getLastErrorNumber();
-                        if (OpenSsl.isError(error)) {
-                            throw new SSLException(
-                                    "failed to set certificate chain: "
-                                            + trustCertChainFile + " (" + SSL.getErrorString(error) + ')');
-                        }
-                    }
-                }
-                if (keyCertChainFile != null && keyFile != null) {
-                    /* Load the certificate file and private key. */
-                    try {
-                        if (!SSLContext.setCertificate(
-                                ctx, keyCertChainFile.getPath(), keyFile.getPath(), keyPassword, SSL.SSL_AIDX_RSA)) {
-                            long error = SSL.getLastErrorNumber();
-                            if (OpenSsl.isError(error)) {
-                                throw new SSLException("failed to set certificate: " +
-                                                       keyCertChainFile + " and " + keyFile +
-                                                       " (" + SSL.getErrorString(error) + ')');
-                            }
-                        }
-                    } catch (SSLException e) {
-                        throw e;
-                    } catch (Exception e) {
-                        throw new SSLException("failed to set certificate: " + keyCertChainFile + " and " + keyFile, e);
-                    }
-                }
-
-                SSLContext.setVerify(ctx, SSL.SSL_VERIFY_NONE, VERIFY_DEPTH);
-
-                try {
-                    if (trustCertChainFile != null) {
-                        trustManagerFactory = buildTrustManagerFactory(trustCertChainFile, trustManagerFactory);
-                    } else if (trustManagerFactory == null) {
-                        trustManagerFactory = TrustManagerFactory.getInstance(
-                                TrustManagerFactory.getDefaultAlgorithm());
-                        trustManagerFactory.init((KeyStore) null);
-                    }
-                    final X509TrustManager manager = chooseTrustManager(trustManagerFactory.getTrustManagers());
-
-                    // Use this to prevent an error when running on java < 7
-                    if (useExtendedTrustManager(manager)) {
-                        final X509ExtendedTrustManager extendedManager = (X509ExtendedTrustManager) manager;
-                        SSLContext.setCertVerifyCallback(ctx, new AbstractCertificateVerifier() {
-                            @Override
-                            void verify(OpenSslEngine engine, X509Certificate[] peerCerts, String auth)
-                                    throws Exception {
-                                extendedManager.checkServerTrusted(peerCerts, auth, engine);
-                            }
-                        });
-                    } else {
-                        SSLContext.setCertVerifyCallback(ctx, new AbstractCertificateVerifier() {
-                            @Override
-                            void verify(OpenSslEngine engine, X509Certificate[] peerCerts, String auth)
-                                    throws Exception {
-                                manager.checkServerTrusted(peerCerts, auth);
-                            }
-                        });
-                    }
-                } catch (Exception e) {
-                    throw new SSLException("unable to setup trustmanager", e);
-                }
-            }
-            sessionContext = new OpenSslClientSessionContext(ctx);
+            sessionContext = newSessionContext(this, ctx, engineMap, trustCertCollection, trustManagerFactory,
+                                               keyCertChain, key, keyPassword, keyManagerFactory);
             success = true;
         } finally {
             if (!success) {
-                destroy();
+                release();
             }
         }
     }
@@ -262,44 +203,8 @@ public final class OpenSslClientContext extends OpenSslContext {
         return sessionContext;
     }
 
-    // No cache is currently supported for client side mode.
-    private static final class OpenSslClientSessionContext extends OpenSslSessionContext {
-        private OpenSslClientSessionContext(long context) {
-            super(context);
-        }
-
-        @Override
-        public void setSessionTimeout(int seconds) {
-            if (seconds < 0) {
-                throw new IllegalArgumentException();
-            }
-        }
-
-        @Override
-        public int getSessionTimeout() {
-            return 0;
-        }
-
-        @Override
-        public void setSessionCacheSize(int size)  {
-            if (size < 0) {
-                throw new IllegalArgumentException();
-            }
-        }
-
-        @Override
-        public int getSessionCacheSize() {
-            return 0;
-        }
-
-        @Override
-        public void setSessionCacheEnabled(boolean enabled) {
-            // ignored
-        }
-
-        @Override
-        public boolean isSessionCacheEnabled() {
-            return false;
-        }
+    @Override
+    OpenSslKeyMaterialManager keyMaterialManager() {
+        return null;
     }
 }

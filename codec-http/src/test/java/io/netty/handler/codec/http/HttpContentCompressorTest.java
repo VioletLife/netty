@@ -18,12 +18,22 @@ package io.netty.handler.codec.http;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.EncoderException;
 import io.netty.handler.codec.compression.ZlibWrapper;
 import io.netty.util.CharsetUtil;
+import io.netty.util.ReferenceCountUtil;
 import org.junit.Test;
 
-import static org.hamcrest.CoreMatchers.*;
-import static org.junit.Assert.*;
+import static io.netty.handler.codec.http.HttpHeadersTestUtils.of;
+import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class HttpContentCompressorTest {
 
@@ -157,7 +167,7 @@ public class HttpContentCompressorTest {
         ch.writeOutbound(new DefaultHttpContent(Unpooled.copiedBuffer("Hell", CharsetUtil.US_ASCII)));
         ch.writeOutbound(new DefaultHttpContent(Unpooled.copiedBuffer("o, w", CharsetUtil.US_ASCII)));
         LastHttpContent content = new DefaultLastHttpContent(Unpooled.copiedBuffer("orld", CharsetUtil.US_ASCII));
-        content.trailingHeaders().set("X-Test", "Netty");
+        content.trailingHeaders().set(of("X-Test"), of("Netty"));
         ch.writeOutbound(content);
 
         HttpContent chunk;
@@ -181,7 +191,7 @@ public class HttpContentCompressorTest {
         chunk = ch.readOutbound();
         assertThat(chunk.content().isReadable(), is(false));
         assertThat(chunk, is(instanceOf(LastHttpContent.class)));
-        assertEquals("Netty", ((LastHttpContent) chunk).trailingHeaders().get("X-Test"));
+        assertEquals("Netty", ((LastHttpContent) chunk).trailingHeaders().get(of("X-Test")));
         chunk.release();
 
         assertThat(ch.readOutbound(), is(nullValue()));
@@ -274,7 +284,7 @@ public class HttpContentCompressorTest {
 
         FullHttpResponse res = new DefaultFullHttpResponse(
                 HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.EMPTY_BUFFER);
-        res.trailingHeaders().set("X-Test", "Netty");
+        res.trailingHeaders().set(of("X-Test"), of("Netty"));
         ch.writeOutbound(res);
 
         Object o = ch.readOutbound();
@@ -287,8 +297,80 @@ public class HttpContentCompressorTest {
         assertThat(res.headers().get(HttpHeaderNames.CONTENT_ENCODING), is(nullValue()));
         assertThat(res.content().readableBytes(), is(0));
         assertThat(res.content().toString(CharsetUtil.US_ASCII), is(""));
-        assertEquals("Netty", res.trailingHeaders().get("X-Test"));
+        assertEquals("Netty", res.trailingHeaders().get(of("X-Test")));
         assertThat(ch.readOutbound(), is(nullValue()));
+    }
+
+    @Test
+    public void test100Continue() throws Exception {
+        FullHttpRequest request = newRequest();
+        HttpUtil.set100ContinueExpected(request, true);
+
+        EmbeddedChannel ch = new EmbeddedChannel(new HttpContentCompressor());
+        ch.writeInbound(request);
+
+        FullHttpResponse continueResponse = new DefaultFullHttpResponse(
+                HttpVersion.HTTP_1_1, HttpResponseStatus.CONTINUE, Unpooled.EMPTY_BUFFER);
+
+        ch.writeOutbound(continueResponse);
+
+        FullHttpResponse res = new DefaultFullHttpResponse(
+                HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.EMPTY_BUFFER);
+        res.trailingHeaders().set(of("X-Test"), of("Netty"));
+        ch.writeOutbound(res);
+
+        Object o = ch.readOutbound();
+        assertThat(o, is(instanceOf(FullHttpResponse.class)));
+
+        res = (FullHttpResponse) o;
+        assertSame(continueResponse, res);
+        res.release();
+
+        o = ch.readOutbound();
+        assertThat(o, is(instanceOf(FullHttpResponse.class)));
+
+        res = (FullHttpResponse) o;
+        assertThat(res.headers().get(HttpHeaderNames.TRANSFER_ENCODING), is(nullValue()));
+
+        // Content encoding shouldn't be modified.
+        assertThat(res.headers().get(HttpHeaderNames.CONTENT_ENCODING), is(nullValue()));
+        assertThat(res.content().readableBytes(), is(0));
+        assertThat(res.content().toString(CharsetUtil.US_ASCII), is(""));
+        assertEquals("Netty", res.trailingHeaders().get(of("X-Test")));
+        assertThat(ch.readOutbound(), is(nullValue()));
+    }
+
+    @Test
+    public void testTooManyResponses() throws Exception {
+        FullHttpRequest request = newRequest();
+        EmbeddedChannel ch = new EmbeddedChannel(new HttpContentCompressor());
+        ch.writeInbound(request);
+
+        ch.writeOutbound(new DefaultFullHttpResponse(
+                HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.EMPTY_BUFFER));
+
+        try {
+            ch.writeOutbound(new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.EMPTY_BUFFER));
+            fail();
+        } catch (EncoderException e) {
+            assertTrue(e.getCause() instanceof IllegalStateException);
+        }
+        assertTrue(ch.finish());
+        for (;;) {
+            Object message = ch.readOutbound();
+            if (message == null) {
+                break;
+            }
+            ReferenceCountUtil.release(message);
+        }
+        for (;;) {
+            Object message = ch.readInbound();
+            if (message == null) {
+                break;
+            }
+            ReferenceCountUtil.release(message);
+        }
     }
 
     private static FullHttpRequest newRequest() {

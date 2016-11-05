@@ -19,7 +19,6 @@ import static io.netty.handler.codec.http.HttpConstants.SP;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.AsciiString;
 import io.netty.util.ByteProcessor;
-import io.netty.util.ByteString;
 import io.netty.util.CharsetUtil;
 
 /**
@@ -458,7 +457,7 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
                 int code = Integer.parseInt(status.substring(0, space));
                 String reasonPhrase = status.substring(space + 1);
                 HttpResponseStatus responseStatus = valueOf(code);
-                if (responseStatus.reasonPhrase().toString().equals(reasonPhrase)) {
+                if (responseStatus.reasonPhrase().contentEquals(reasonPhrase)) {
                     return responseStatus;
                 } else {
                     return new HttpResponseStatus(code, reasonPhrase);
@@ -471,7 +470,7 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
 
     private static final class HttpStatusLineProcessor implements ByteProcessor {
         private static final byte ASCII_SPACE = (byte) ' ';
-        private final ByteString string;
+        private final AsciiString string;
         private int i;
         /**
          * 0 = New or havn't seen {@link ASCII_SPACE}.
@@ -482,7 +481,7 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
         private int state;
         private HttpResponseStatus status;
 
-        public HttpStatusLineProcessor(ByteString string) {
+        public HttpStatusLineProcessor(AsciiString string) {
             this.string = string;
         }
 
@@ -506,11 +505,11 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
         }
 
         private void parseStatus(int codeEnd) {
-            int code = string.parseAsciiInt(0, codeEnd);
+            int code = string.parseInt(0, codeEnd);
             status = valueOf(code);
             if (codeEnd < string.length()) {
                 String actualReason = string.toString(codeEnd + 1, string.length());
-                if (!status.reasonPhrase().equals(actualReason)) {
+                if (!status.reasonPhrase().contentEquals(actualReason)) {
                     status = new HttpResponseStatus(code, actualReason);
                 }
             }
@@ -534,7 +533,7 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
      *
      * @throws IllegalArgumentException if the specified status line is malformed
      */
-    public static HttpResponseStatus parseLine(ByteString line) {
+    public static HttpResponseStatus parseLine(AsciiString line) {
         try {
             HttpStatusLineProcessor processor = new HttpStatusLineProcessor(line);
             line.forEachByte(processor);
@@ -670,9 +669,9 @@ public class HttpResponseStatus implements Comparable<HttpResponseStatus> {
 
     void encode(ByteBuf buf) {
         if (bytes == null) {
-            HttpHeaders.encodeAscii0(String.valueOf(code()), buf);
+            HttpUtil.encodeAscii0(String.valueOf(code()), buf);
             buf.writeByte(SP);
-            HttpHeaders.encodeAscii0(String.valueOf(reasonPhrase()), buf);
+            HttpUtil.encodeAscii0(String.valueOf(reasonPhrase()), buf);
         } else {
             buf.writeBytes(bytes);
         }

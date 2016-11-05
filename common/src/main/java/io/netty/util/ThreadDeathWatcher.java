@@ -17,8 +17,9 @@
 package io.netty.util;
 
 import io.netty.util.concurrent.DefaultThreadFactory;
-import io.netty.util.internal.MpscLinkedQueueNode;
 import io.netty.util.internal.PlatformDependent;
+import io.netty.util.internal.StringUtil;
+import io.netty.util.internal.SystemPropertyUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -40,13 +41,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ThreadDeathWatcher {
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(ThreadDeathWatcher.class);
-    private static final ThreadFactory threadFactory =
-            new DefaultThreadFactory(ThreadDeathWatcher.class, true, Thread.MIN_PRIORITY);
+    // visible for testing
+    static final ThreadFactory threadFactory;
 
     private static final Queue<Entry> pendingEntries = PlatformDependent.newMpscQueue();
     private static final Watcher watcher = new Watcher();
     private static final AtomicBoolean started = new AtomicBoolean();
     private static volatile Thread watcherThread;
+
+    static {
+        String poolName = "threadDeathWatcher";
+        String serviceThreadPrefix = SystemPropertyUtil.get("io.netty.serviceThreadPrefix");
+        if (!StringUtil.isNullOrEmpty(serviceThreadPrefix)) {
+            poolName = serviceThreadPrefix + poolName;
+        }
+        // because the ThreadDeathWatcher is a singleton, tasks submitted to it can come from arbitrary threads and
+        // this can trigger the creation of a thread from arbitrary thread groups; for this reason, the thread factory
+        // must not be sticky about its thread group
+        threadFactory = new DefaultThreadFactory(poolName, true, Thread.MIN_PRIORITY, null);
+    }
 
     /**
      * Schedules the specified {@code task} to run when the specified {@code thread} dies.
@@ -203,7 +216,7 @@ public final class ThreadDeathWatcher {
         }
     }
 
-    private static final class Entry extends MpscLinkedQueueNode<Entry> {
+    private static final class Entry {
         final Thread thread;
         final Runnable task;
         final boolean isWatch;
@@ -212,11 +225,6 @@ public final class ThreadDeathWatcher {
             this.thread = thread;
             this.task = task;
             this.isWatch = isWatch;
-        }
-
-        @Override
-        public Entry value() {
-            return this;
         }
 
         @Override

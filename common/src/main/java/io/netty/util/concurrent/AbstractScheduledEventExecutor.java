@@ -17,7 +17,6 @@ package io.netty.util.concurrent;
 
 import io.netty.util.internal.ObjectUtil;
 
-import java.util.Iterator;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.Callable;
@@ -69,7 +68,7 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
                 scheduledTaskQueue.toArray(new ScheduledFutureTask<?>[scheduledTaskQueue.size()]);
 
         for (ScheduledFutureTask<?> task: scheduledTasks) {
-            task.cancel(false);
+            task.cancelWithoutRemove(false);
         }
 
         scheduledTaskQueue.clear();
@@ -206,17 +205,16 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
         return task;
     }
 
-    void purgeCancelledScheduledTasks() {
-        Queue<ScheduledFutureTask<?>> scheduledTaskQueue = this.scheduledTaskQueue;
-        if (isNullOrEmpty(scheduledTaskQueue)) {
-            return;
-        }
-        Iterator<ScheduledFutureTask<?>> i = scheduledTaskQueue.iterator();
-        while (i.hasNext()) {
-            ScheduledFutureTask<?> task = i.next();
-            if (task.isCancelled()) {
-                i.remove();
-            }
+    final void removeScheduled(final ScheduledFutureTask<?> task) {
+        if (inEventLoop()) {
+            scheduledTaskQueue().remove(task);
+        } else {
+            execute(new Runnable() {
+                @Override
+                public void run() {
+                    removeScheduled(task);
+                }
+            });
         }
     }
 }

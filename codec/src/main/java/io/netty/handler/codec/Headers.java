@@ -14,529 +14,523 @@
  */
 package io.netty.handler.codec;
 
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
+/**
+ * Common interface for {@link Headers} which represents a mapping of key to value.
+ * Duplicate keys may be allowed by implementations.
+ *
+ * @param <K> the type of the header name.
+ * @param <V> the type of the header value.
+ * @param <T> the type to use for return values when the intention is to return {@code this} object.
+ */
+public interface Headers<K, V, T extends Headers<K, V, T>> extends Iterable<Entry<K, V>> {
     /**
-     * Provides an abstraction to iterate over elements maintained in the {@link Headers} collection.
-     */
-    interface EntryVisitor<T> {
-        /**
-         * @return <ul>
-         *         <li>{@code true} if the processor wants to continue the loop and handle the entry.</li>
-         *         <li>{@code false} if the processor wants to stop handling headers and abort the loop.</li>
-         *         </ul>
-         */
-        boolean visit(Map.Entry<T, T> entry) throws Exception;
-    }
-
-    /**
-     * Provides an abstraction to iterate over elements maintained in the {@link Headers} collection.
-     */
-    interface NameVisitor<T> {
-        /**
-         * @return <ul>
-         *         <li>{@code true} if the processor wants to continue the loop and handle the entry.</li>
-         *         <li>{@code false} if the processor wants to stop handling headers and abort the loop.</li>
-         *         </ul>
-         */
-        boolean visit(T name) throws Exception;
-    }
-
-    /**
-     * Converts to/from a generic object to the type of the name for this map
-     */
-    interface ValueConverter<T> {
-        T convertObject(Object value);
-
-        T convertBoolean(boolean value);
-
-        boolean convertToBoolean(T value);
-
-        T convertByte(byte value);
-
-        byte convertToByte(T value);
-
-        T convertChar(char value);
-
-        char convertToChar(T value);
-
-        T convertShort(short value);
-
-        short convertToShort(T value);
-
-        T convertInt(int value);
-
-        int convertToInt(T value);
-
-        T convertLong(long value);
-
-        long convertToLong(T value);
-
-        T convertTimeMillis(long value);
-
-        long convertToTimeMillis(T value);
-
-        T convertFloat(float value);
-
-        float convertToFloat(T value);
-
-        T convertDouble(double value);
-
-        double convertToDouble(T value);
-    }
-
-    /**
-     * Returns the value of a header with the specified name. If there are more than one values for the specified name,
-     * the first value is returned.
+     * Returns the value of a header with the specified name. If there is more than one value for the specified name,
+     * the first value in insertion order is returned.
      *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found. {@code null} if there's no such header.
+     * @param name the name of the header to retrieve
+     * @return the first header value if the header is found. {@code null} if there's no such header
      */
-    T get(T name);
+    V get(K name);
 
     /**
-     * Returns the value of a header with the specified name. If there are more than one values for the specified name,
-     * the first value is returned.
+     * Returns the value of a header with the specified name. If there is more than one value for the specified name,
+     * the first value in insertion order is returned.
      *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found. {@code defaultValue} if there's no such header.
-     */
-    T get(T name, T defaultValue);
-
-    /**
-     * Returns and removes the value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value or {@code null} if there is no such header
-     */
-    T getAndRemove(T name);
-
-    /**
-     * Returns and removes the value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
+     * @param name the name of the header to retrieve
      * @param defaultValue the default value
      * @return the first header value or {@code defaultValue} if there is no such header
      */
-    T getAndRemove(T name, T defaultValue);
+    V get(K name, V defaultValue);
 
     /**
-     * Returns the values of headers with the specified name
+     * Returns the value of a header with the specified name and removes it from this object. If there is more than
+     * one value for the specified name, the first value in insertion order is returned.
      *
-     * @param name The name of the headers to search
-     * @return A {@link List} of header values which will be empty if no values are found
+     * @param name the name of the header to retrieve
+     * @return the first header value or {@code null} if there is no such header
      */
-    List<T> getAll(T name);
+    V getAndRemove(K name);
 
     /**
-     * Returns and Removes the values of headers with the specified name
+     * Returns the value of a header with the specified name and removes it from this object. If there is more than
+     * one value for the specified name, the first value in insertion order is returned.
      *
-     * @param name The name of the headers to search
-     * @return A {@link List} of header values which will be empty if no values are found
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the first header value or {@code defaultValue} if there is no such header
      */
-    List<T> getAllAndRemove(T name);
+    V getAndRemove(K name, V defaultValue);
 
     /**
-     * Returns the boolean value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
+     * Returns all values for the header with the specified name. The returned {@link List} can't be modified.
      *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a boolean. {@code null} if there's no such
-     *         header or its value is not a boolean.
+     * @param name the name of the header to retrieve
+     * @return a {@link List} of header values or an empty {@link List} if no values are found.
      */
-    Boolean getBoolean(T name);
+    List<V> getAll(K name);
 
     /**
-     * Returns the boolean value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
+     * Returns all values for the header with the specified name and removes them from this object.
+     * The returned {@link List} can't be modified.
      *
+     * @param name the name of the header to retrieve
+     * @return a {@link List} of header values or an empty {@link List} if no values are found.
+     */
+    List<V> getAllAndRemove(K name);
+
+    /**
+     * Returns the {@code boolean} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code boolean} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code boolean}.
+     */
+    Boolean getBoolean(K name);
+
+    /**
+     * Returns the {@code boolean} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code boolean} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code boolean}.
+     */
+    boolean getBoolean(K name, boolean defaultValue);
+
+    /**
+     * Returns the {@code byte} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code byte} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code byte}.
+     */
+    Byte getByte(K name);
+
+    /**
+     * Returns the {@code byte} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code byte} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code byte}.
+     */
+    byte getByte(K name, byte defaultValue);
+
+    /**
+     * Returns the {@code char} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code char} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code char}.
+     */
+    Character getChar(K name);
+
+    /**
+     * Returns the {@code char} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code char} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code char}.
+     */
+    char getChar(K name, char defaultValue);
+
+    /**
+     * Returns the {@code short} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code short} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code short}.
+     */
+    Short getShort(K name);
+
+    /**
+     * Returns the {@code short} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code short} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code short}.
+     */
+    short getShort(K name, short defaultValue);
+
+    /**
+     * Returns the {@code int} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code int} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code int}.
+     */
+    Integer getInt(K name);
+
+    /**
+     * Returns the {@code int} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code int} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code int}.
+     */
+    int getInt(K name, int defaultValue);
+
+    /**
+     * Returns the {@code long} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code long} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code long}.
+     */
+    Long getLong(K name);
+
+    /**
+     * Returns the {@code long} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code long} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code long}.
+     */
+    long getLong(K name, long defaultValue);
+
+    /**
+     * Returns the {@code float} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code float} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code float}.
+     */
+    Float getFloat(K name);
+
+    /**
+     * Returns the {@code float} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code float} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code float}.
+     */
+    float getFloat(K name, float defaultValue);
+
+    /**
+     * Returns the {@code double} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the {@code double} value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to {@code double}.
+     */
+    Double getDouble(K name);
+
+    /**
+     * Returns the {@code double} value of a header with the specified name. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the {@code double} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code double}.
+     */
+    double getDouble(K name, double defaultValue);
+
+    /**
+     * Returns the value of a header with the specified name in milliseconds. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @return the milliseconds value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to milliseconds.
+     */
+    Long getTimeMillis(K name);
+
+    /**
+     * Returns the value of a header with the specified name in milliseconds. If there is more than one value for the
+     * specified name, the first value in insertion order is returned.
+     *
+     * @param name the name of the header to retrieve
+     * @param defaultValue the default value
+     * @return the milliseconds value of the first value in insertion order or {@code defaultValue} if there is no such
+     *         value or it can't be converted to milliseconds.
+     */
+    long getTimeMillis(K name, long defaultValue);
+
+    /**
+     * Returns the {@code boolean} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
+     * @param name the name of the header to retrieve
+     * @return the {@code boolean} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code boolean}.
+     */
+    Boolean getBooleanAndRemove(K name);
+
+    /**
+     * Returns the {@code boolean} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a boolean. {@code defaultValue} if there's
-     *         no such header or its value is not a boolean.
+     * @return the {@code boolean} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code boolean}.
      */
-    boolean getBoolean(T name, boolean defaultValue);
+    boolean getBooleanAndRemove(K name, boolean defaultValue);
 
     /**
-     * Returns the byte value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
+     * Returns the {@code byte} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a byte. {@code null} if there's no such
-     *         header or its value is not a byte.
+     * @return the {@code byte} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code byte}.
      */
-    Byte getByte(T name);
+    Byte getByteAndRemove(K name);
 
     /**
-     * Returns the byte value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a byte. {@code defaultValue} if there's no
-     *         such header or its value is not a byte.
-     */
-    byte getByte(T name, byte defaultValue);
-
-    /**
-     * Returns the char value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a char. {@code null} if there's no such
-     *         header or its value is not a char.
-     */
-    Character getChar(T name);
-
-    /**
-     * Returns the char value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
+     * Returns the {@code byte} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a char. {@code defaultValue} if there's no
-     *         such header or its value is not a char.
+     * @return the {@code byte} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code byte}.
      */
-    char getChar(T name, char defaultValue);
+    byte getByteAndRemove(K name, byte defaultValue);
 
     /**
-     * Returns the short value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
+     * Returns the {@code char} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a short. {@code null} if there's no such
-     *         header or its value is not a short.
+     * @return the {@code char} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code char}.
      */
-    Short getShort(T name);
+    Character getCharAndRemove(K name);
 
     /**
-     * Returns the short value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a short. {@code defaultValue} if there's
-     *         no such header or its value is not a short.
-     */
-    short getInt(T name, short defaultValue);
-
-    /**
-     * Returns the integer value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is an integer. {@code null} if there's no
-     *         such header or its value is not an integer.
-     */
-    Integer getInt(T name);
-
-    /**
-     * Returns the integer value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
+     * Returns the {@code char} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is an integer. {@code defaultValue} if
-     *         there's no such header or its value is not an integer.
+     * @return the {@code char} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code char}.
      */
-    int getInt(T name, int defaultValue);
+    char getCharAndRemove(K name, char defaultValue);
 
     /**
-     * Returns the long value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
+     * Returns the {@code short} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a long. {@code null} if there's no such
-     *         header or its value is not a long.
+     * @return the {@code short} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code short}.
      */
-    Long getLong(T name);
+    Short getShortAndRemove(K name);
 
     /**
-     * Returns the long value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a long. {@code defaultValue} if there's no
-     *         such header or its value is not a long.
-     */
-    long getLong(T name, long defaultValue);
-
-    /**
-     * Returns the float value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a float. {@code null} if there's no such
-     *         header or its value is not a float.
-     */
-    Float getFloat(T name);
-
-    /**
-     * Returns the float value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
+     * Returns the {@code short} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a float. {@code defaultValue} if there's
-     *         no such header or its value is not a float.
+     * @return the {@code short} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code short}.
      */
-    float getFloat(T name, float defaultValue);
+    short getShortAndRemove(K name, short defaultValue);
 
     /**
-     * Returns the double value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
+     * Returns the {@code int} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a double. {@code null} if there's no such
-     *         header or its value is not a double.
+     * @return the {@code int} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code int}.
      */
-    Double getDouble(T name);
+    Integer getIntAndRemove(K name);
 
     /**
-     * Returns the double value of a header with the specified name. If there are more than one values for the specified
-     * name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a double. {@code defaultValue} if there's
-     *         no such header or its value is not a double.
-     */
-    double getDouble(T name, double defaultValue);
-
-    /**
-     * Returns the date value of a header with the specified name as milliseconds. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name The name of the header to search
-     * @return the first header value in milliseconds if the header is found and its value is a date. {@code null} if
-     *         there's no such header or its value is not a date.
-     */
-    Long getTimeMillis(T name);
-
-    /**
-     * Returns the date value of a header with the specified name as milliseconds. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name The name of the header to search
-     * @param defaultValue default value
-     * @return the first header value in milliseconds if the header is found and its value is a date.
-     *         {@code defaultValue} if there's no such header or its value is not a date.
-     */
-    long getTimeMillis(T name, long defaultValue);
-
-    /**
-     * Returns and removes the boolean value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a boolean. {@code null} if there's no such
-     *         header or its value is not a boolean.
-     */
-    Boolean getBooleanAndRemove(T name);
-
-    /**
-     * Returns and removes the boolean value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
+     * Returns the {@code int} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a boolean. {@code defaultValue} if there
-     *         is no such header or its value of header is not a boolean.
+     * @return the {@code int} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code int}.
      */
-    boolean getBooleanAndRemove(T name, boolean defaultValue);
+    int getIntAndRemove(K name, int defaultValue);
 
     /**
-     * Returns and removes the byte value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
+     * Returns the {@code long} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a byte. {@code null} if there's no such
-     *         header or its value is not a byte.
+     * @return the {@code long} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code long}.
      */
-    Byte getByteAndRemove(T name);
+    Long getLongAndRemove(K name);
 
     /**
-     * Returns and removes the byte value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a byte. {@code defaultValue} if there is
-     *         no such header or its value of header is not a byte.
-     */
-    byte getByteAndRemove(T name, byte defaultValue);
-
-    /**
-     * Returns and removes the char value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a char. {@code null} if there's no such
-     *         header or its value is not a char.
-     */
-    Character getCharAndRemove(T name);
-
-    /**
-     * Returns and removes the char value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
+     * Returns the {@code long} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a char. {@code defaultValue} if there is
-     *         no such header or its value of header is not a char.
+     * @return the {@code long} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code long}.
      */
-    char getCharAndRemove(T name, char defaultValue);
+    long getLongAndRemove(K name, long defaultValue);
 
     /**
-     * Returns and removes the short value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
+     * Returns the {@code float} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a short. {@code null} if there's no such
-     *         header or its value is not a short.
+     * @return the {@code float} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code float}.
      */
-    Short getShortAndRemove(T name);
+    Float getFloatAndRemove(K name);
 
     /**
-     * Returns and removes the short value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a short. {@code defaultValue} if there is
-     *         no such header or its value of header is not a short.
-     */
-    short getShortAndRemove(T name, short defaultValue);
-
-    /**
-     * Returns and removes the integer value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is an integer. {@code null} if there's no
-     *         such header or its value is not an integer.
-     */
-    Integer getIntAndRemove(T name);
-
-    /**
-     * Returns and removes the integer value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
+     * Returns the {@code float} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is an integer. {@code defaultValue} if there
-     *         is no such header or its value of header is not an integer.
+     * @return the {@code float} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code float}.
      */
-    int getIntAndRemove(T name, int defaultValue);
+    float getFloatAndRemove(K name, float defaultValue);
 
     /**
-     * Returns and removes the long value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
+     * Returns the {@code double} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a long. {@code null} if there's no such
-     *         header or its value is not a long.
+     * @return the {@code double} value of the first value in insertion order or {@code null} if there is no
+     *         such value or it can't be converted to {@code double}.
      */
-    Long getLongAndRemove(T name);
+    Double getDoubleAndRemove(K name);
 
     /**
-     * Returns and removes the long value of a header with the specified name. If there are more than one values for the
-     * specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a long. {@code defaultValue} if there's no
-     *         such header or its value is not a long.
-     */
-    long getLongAndRemove(T name, long defaultValue);
-
-    /**
-     * Returns and removes the float value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a float. {@code null} if there's no such
-     *         header or its value is not a float.
-     */
-    Float getFloatAndRemove(T name);
-
-    /**
-     * Returns and removes the float value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
+     * Returns the {@code double} value of a header with the specified {@code name} and removes the header from this
+     * object. If there is more than one value for the specified name, the first value in insertion order is returned.
+     * In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
      * @param name the name of the header to search
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a float. {@code defaultValue} if there's
-     *         no such header or its value is not a float.
+     * @return the {@code double} value of the first value in insertion order or {@code defaultValue} if there is no
+     *         such value or it can't be converted to {@code double}.
      */
-    float getFloatAndRemove(T name, float defaultValue);
+    double getDoubleAndRemove(K name, double defaultValue);
 
     /**
-     * Returns and removes the double value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
-     * @return the first header value if the header is found and its value is a double. {@code null} if there's no such
-     *         header or its value is not a double.
+     * Returns the value of a header with the specified {@code name} in milliseconds and removes the header from this
+     * object. If there is more than one value for the specified {@code name}, the first value in insertion order is
+     * returned. In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
+     * @param name the name of the header to retrieve
+     * @return the milliseconds value of the first value in insertion order or {@code null} if there is no such
+     *         value or it can't be converted to milliseconds.
      */
-    Double getDoubleAndRemove(T name);
+    Long getTimeMillisAndRemove(K name);
 
     /**
-     * Returns and removes the double value of a header with the specified name. If there are more than one values for
-     * the specified name, the first value is returned.
-     *
-     * @param name the name of the header to search
+     * Returns the value of a header with the specified {@code name} in milliseconds and removes the header from this
+     * object. If there is more than one value for the specified {@code name}, the first value in insertion order is
+     * returned. In any case all values for {@code name} are removed.
+     * <p>
+     * If an exception occurs during the translation from type {@code T} all entries with {@code name} may still
+     * be removed.
+     * @param name the name of the header to retrieve
      * @param defaultValue the default value
-     * @return the first header value if the header is found and its value is a double. {@code defaultValue} if there's
-     *         no such header or its value is not a double.
+     * @return the milliseconds value of the first value in insertion order or {@code defaultValue} if there is no such
+     *         value or it can't be converted to milliseconds.
      */
-    double getDoubleAndRemove(T name, double defaultValue);
+    long getTimeMillisAndRemove(K name, long defaultValue);
 
     /**
-     * Returns and removes the date value of a header with the specified name as milliseconds. If there are more than
-     * one values for the specified name, the first value is returned.
+     * Returns {@code true} if a header with the {@code name} exists, {@code false} otherwise.
      *
-     * @param name The name of the header to search
-     * @return the first header value in milliseconds if the header is found and its value is a date. {@code null} if
-     *         there's no such header or its value is not a date.
+     * @param name the header name
      */
-    Long getTimeMillisAndRemove(T name);
+    boolean contains(K name);
 
     /**
-     * Returns and removes the date value of a header with the specified name as milliseconds. If there are more than
-     * one values for the specified name, the first value is returned.
-     *
-     * @param name The name of the header to search
-     * @param defaultValue default value
-     * @return the first header value in milliseconds if the header is found and its value is a date.
-     *         {@code defaultValue} if there's no such header or its value is not a date.
+     * Returns {@code true} if a header with the {@code name} and {@code value} exists, {@code false} otherwise.
+     * <p>
+     * The {@link Object#equals(Object)} method is used to test for equality of {@code value}.
+     * </p>
+     * @param name the header name
+     * @param value the header value of the header to find
      */
-    long getTimeMillisAndRemove(T name, long defaultValue);
-
-    /**
-     * Returns a new {@link List} that contains all headers in this object. Note that modifying the returned
-     * {@link List} will not affect the state of this object. If you intend to enumerate over the header entries only,
-     * use {@link #iterator()} instead, which has much less overhead.
-     */
-    List<Entry<T, T>> entries();
-
-    /**
-     * Returns {@code true} if and only if this collection contains the header with the specified name.
-     *
-     * @param name The name of the header to search for
-     * @return {@code true} if at least one header is found
-     */
-    boolean contains(T name);
+    boolean contains(K name, V value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -545,7 +539,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean contains(T name, T value);
+    boolean containsObject(K name, Object value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -554,7 +548,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsObject(T name, Object value);
+    boolean containsBoolean(K name, boolean value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -563,7 +557,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsBoolean(T name, boolean value);
+    boolean containsByte(K name, byte value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -572,7 +566,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsByte(T name, byte value);
+    boolean containsChar(K name, char value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -581,7 +575,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsChar(T name, char value);
+    boolean containsShort(K name, short value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -590,7 +584,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsShort(T name, short value);
+    boolean containsInt(K name, int value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -599,7 +593,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsInt(T name, int value);
+    boolean containsLong(K name, long value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -608,7 +602,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsLong(T name, long value);
+    boolean containsFloat(K name, float value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -617,7 +611,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsFloat(T name, float value);
+    boolean containsDouble(K name, double value);
 
     /**
      * Returns {@code true} if a header with the name and value exists.
@@ -626,368 +620,276 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value the header value
      * @return {@code true} if it contains it {@code false} otherwise
      */
-    boolean containsDouble(T name, double value);
+    boolean containsTimeMillis(K name, long value);
 
     /**
-     * Returns {@code true} if a header with the name and value exists.
-     *
-     * @param name the header name
-     * @param value the header value
-     * @return {@code true} if it contains it {@code false} otherwise
-     */
-    boolean containsTimeMillis(T name, long value);
-
-    /**
-     * Returns {@code true} if a header with the name and value exists.
-     *
-     * @param name the header name
-     * @param value the header value
-     * @param comparator The comparator to use when comparing {@code name} and {@code value} to entries in this map
-     * @return {@code true} if it contains it {@code false} otherwise
-     */
-    boolean contains(T name, T value, Comparator<? super T> comparator);
-
-    /**
-     * Returns {@code true} if a header with the name and value exists.
-     *
-     * @param name the header name
-     * @param value the header value
-     * @param keyComparator The comparator to use when comparing {@code name} to names in this map
-     * @param valueComparator The comparator to use when comparing {@code value} to values in this map
-     * @return {@code true} if it contains it {@code false} otherwise
-     */
-    boolean contains(T name, T value, Comparator<? super T> keyComparator, Comparator<? super T> valueComparator);
-
-    /**
-     * Returns {@code true} if a header with the name and value exists.
-     *
-     * @param name the header name
-     * @param value the header value
-     * @param comparator The comparator to use when comparing {@code name} and {@code value} to entries in this map
-     * @return {@code true} if it contains it {@code false} otherwise
-     */
-    boolean containsObject(T name, Object value, Comparator<? super T> comparator);
-
-    /**
-     * Returns {@code true} if a header with the name and value exists.
-     *
-     * @param name the header name
-     * @param value the header value
-     * @param keyComparator The comparator to use when comparing {@code name} to names in this map
-     * @param valueComparator The comparator to use when comparing {@code value} to values in this map
-     * @return {@code true} if it contains it {@code false} otherwise
-     */
-    boolean containsObject(T name, Object value, Comparator<? super T> keyComparator,
-            Comparator<? super T> valueComparator);
-
-    /**
-     * Returns the number of header entries in this collection.
+     * Returns the number of headers in this object.
      */
     int size();
 
     /**
-     * Returns {@code true} if and only if this collection contains no header entries.
+     * Returns {@code true} if {@link #size()} equals {@code 0}.
      */
     boolean isEmpty();
 
     /**
-     * Returns a new {@link Set} that contains the names of all headers in this object. Note that modifying the returned
-     * {@link Set} will not affect the state of this object. If you intend to enumerate over the header entries only,
-     * use {@link #iterator()} instead, which has much less overhead.
+     * Returns a {@link Set} of all header names in this object. The returned {@link Set} cannot be modified.
      */
-    Set<T> names();
+    Set<K> names();
 
     /**
-     * Returns a new {@link List} that contains the names of all headers in this object. Note that modifying the
-     * returned {@link List} will not affect the state of this object. If you intend to enumerate over the header
-     * entries only, use {@link #iterator()} instead, which has much less overhead.
-     */
-    List<T> namesList();
-
-    /**
-     * Adds a new header with the specified name and value. If the specified value is not a {@link String}, it is
-     * converted into a {@link String} by {@link Object#toString()}, except in the cases of {@link java.util.Date} and
-     * {@link java.util.Calendar}, which are formatted to the date format defined in <a
-     * href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.3.1">RFC2616</a>.
+     * Adds a new header with the specified {@code name} and {@code value}.
      *
-     * @param name the name of the header being added
-     * @param value the value of the header being added
+     * @param name the name of the header
+     * @param value the value of the header
      * @return {@code this}
      */
-    Headers<T> add(T name, T value);
+    T add(K name, V value);
 
     /**
-     * Adds a new header with the specified name and values. This getMethod can be represented approximately as the
-     * following code:
+     * Adds new headers with the specified {@code name} and {@code values}. This method is semantically equivalent to
+     *
+     * <pre>
+     * for (T value : values) {
+     *     headers.add(name, value);
+     * }
+     * </pre>
+     *
+     * @param name the header name
+     * @param values the values of the header
+     * @return {@code this}
+     */
+    T add(K name, Iterable<? extends V> values);
+
+    /**
+     * Adds new headers with the specified {@code name} and {@code values}. This method is semantically equivalent to
+     *
+     * <pre>
+     * for (T value : values) {
+     *     headers.add(name, value);
+     * }
+     * </pre>
+     *
+     * @param name the header name
+     * @param values the values of the header
+     * @return {@code this}
+     */
+    T add(K name, V... values);
+
+    /**
+     * Adds a new header. Before the {@code value} is added, it's converted to type {@code T}.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addObject(K name, Object value);
+
+    /**
+     * Adds a new header with the specified name and values. This method is equivalent to
      *
      * <pre>
      * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
+     *     headers.addObject(name, v);
+     * }
+     * </pre>
+     *
+     * @param name the header name
+     * @param values the value of the header
+     * @return {@code this}
+     */
+    T addObject(K name, Iterable<?> values);
+
+    /**
+     * Adds a new header with the specified name and values. This method is equivalent to
+     *
+     * <pre>
+     * for (Object v : values) {
+     *     headers.addObject(name, v);
+     * }
+     * </pre>
+     *
+     * @param name the header name
+     * @param values the value of the header
+     * @return {@code this}
+     */
+    T addObject(K name, Object... values);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addBoolean(K name, boolean value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addByte(K name, byte value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addChar(K name, char value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addShort(K name, short value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addInt(K name, int value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addLong(K name, long value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addFloat(K name, float value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addDouble(K name, double value);
+
+    /**
+     * Adds a new header.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T addTimeMillis(K name, long value);
+
+    /**
+     * Adds all header names and values of {@code headers} to this object.
+     *
+     * @throws IllegalArgumentException if {@code headers == this}.
+     * @return {@code this}
+     */
+    T add(Headers<? extends K, ? extends V, ?> headers);
+
+    /**
+     * Sets a header with the specified name and value. Any existing headers with the same name are overwritten.
+     *
+     * @param name the header name
+     * @param value the value of the header
+     * @return {@code this}
+     */
+    T set(K name, V value);
+
+    /**
+     * Sets a new header with the specified name and values. This method is equivalent to
+     *
+     * <pre>
+     * for (T v : values) {
+     *     headers.addObject(name, v);
+     * }
+     * </pre>
+     *
+     * @param name the header name
+     * @param values the value of the header
+     * @return {@code this}
+     */
+    T set(K name, Iterable<? extends V> values);
+
+    /**
+     * Sets a header with the specified name and values. Any existing headers with this name are removed. This method
+     * is equivalent to:
+     *
+     * <pre>
+     * headers.remove(name);
+     * for (T v : values) {
      *     headers.add(name, v);
      * }
      * </pre>
      *
-     * @param name the name of the headepublic abstract rs being set
-     * @param values the values of the headers being set
+     * @param name the header name
+     * @param values the value of the header
      * @return {@code this}
      */
-    Headers<T> add(T name, Iterable<? extends T> values);
+    T set(K name, V... values);
 
     /**
-     * Adds a new header with the specified name and values. This getMethod can be represented approximately as the
-     * following code:
+     * Sets a new header. Any existing headers with this name are removed. Before the {@code value} is add, it's
+     * converted to type {@code T}.
      *
-     * <pre>
-     * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
-     * }
-     * </pre>
-     *
-     * @param name the name of the headepublic abstract rs being set
-     * @param values the values of the headers being set
+     * @param name the header name
+     * @param value the value of the header
+     * @throws NullPointerException if either {@code name} or {@code value} before or after its conversion is
+     *                              {@code null}.
      * @return {@code this}
      */
-    Headers<T> add(T name, T... values);
+    T setObject(K name, Object value);
 
     /**
-     * Adds a new header with the specified name and value. If the specified value is not a {@link String}, it is
-     * converted into a {@link String} by {@link Object#toString()}, except in the cases of {@link java.util.Date} and
-     * {@link java.util.Calendar}, which are formatted to the date format defined in <a
-     * href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.3.1">RFC2616</a>.
-     *
-     * @param name the name of the header being added
-     * @param value the value of the header being added
-     * @return {@code this}
-     */
-    Headers<T> addObject(T name, Object value);
-
-    /**
-     * Adds a new header with the specified name and values. This getMethod can be represented approximately as the
-     * following code:
-     *
-     * <pre>
-     * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
-     * }
-     * </pre>
-     *
-     * @param name the name of the headepublic abstract rs being set
-     * @param values the values of the headers being set
-     * @return {@code this}
-     */
-    Headers<T> addObject(T name, Iterable<?> values);
-
-    /**
-     * Adds a new header with the specified name and values. This getMethod can be represented approximately as the
-     * following code:
-     *
-     * <pre>
-     * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
-     * }
-     * </pre>
-     *
-     * @param name the name of the headepublic abstract rs being set
-     * @param values the values of the headers being set
-     * @return {@code this}
-     */
-    Headers<T> addObject(T name, Object... values);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addBoolean(T name, boolean value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addByte(T name, byte value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addChar(T name, char value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addShort(T name, short value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addInt(T name, int value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addLong(T name, long value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addFloat(T name, float value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addDouble(T name, double value);
-
-    /**
-     * Add the {@code name} to {@code value}.
-     * @param name The name to modify
-     * @param value The value
-     * @return {@code this}
-     */
-    Headers<T> addTimeMillis(T name, long value);
-
-    /**
-     * Adds all header entries of the specified {@code headers}.
-     *
-     * @return {@code this}
-     */
-    Headers<T> add(Headers<T> headers);
-
-    /**
-     * Sets a header with the specified name and value. If there is an existing header with the same name, it is
-     * removed. If the specified value is not a {@link String}, it is converted into a {@link String} by
-     * {@link Object#toString()}, except for {@link java.util.Date} and {@link java.util.Calendar}, which are formatted
-     * to the date format defined in <a
-     * href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.3.1">RFC2616</a>.
-     *
-     * @param name The name of the header being set
-     * @param value The value of the header being set
-     * @return {@code this}
-     */
-    Headers<T> set(T name, T value);
-
-    /**
-     * Sets a header with the specified name and values. If there is an existing header with the same name, it is
-     * removed. This getMethod can be represented approximately as the following code:
+     * Sets a header with the specified name and values. Any existing headers with this name are removed. This method
+     * is equivalent to:
      *
      * <pre>
      * headers.remove(name);
      * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
+     *     headers.addObject(name, v);
      * }
      * </pre>
      *
-     * @param name the name of the headers being set
-     * @param values the values of the headers being set
+     * @param name the header name
+     * @param values the values of the header
      * @return {@code this}
      */
-    Headers<T> set(T name, Iterable<? extends T> values);
+    T setObject(K name, Iterable<?> values);
 
     /**
-     * Sets a header with the specified name and values. If there is an existing header with the same name, it is
-     * removed. This getMethod can be represented approximately as the following code:
+     * Sets a header with the specified name and values. Any existing headers with this name are removed. This method
+     * is equivalent to:
      *
      * <pre>
      * headers.remove(name);
      * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
+     *     headers.addObject(name, v);
      * }
      * </pre>
      *
-     * @param name the name of the headers being set
-     * @param values the values of the headers being set
+     * @param name the header name
+     * @param values the values of the header
      * @return {@code this}
      */
-    Headers<T> set(T name, T... values);
-
-    /**
-     * Sets a header with the specified name and value. If there is an existing header with the same name, it is
-     * removed. If the specified value is not a {@link String}, it is converted into a {@link String} by
-     * {@link Object#toString()}, except for {@link java.util.Date} and {@link java.util.Calendar}, which are formatted
-     * to the date format defined in <a
-     * href="http://www.w3.org/Protocols/rfc2616/rfc2616-sec3.html#sec3.3.1">RFC2616</a>.
-     *
-     * @param name The name of the header being set
-     * @param value The value of the header being set
-     * @return {@code this}
-     */
-    Headers<T> setObject(T name, Object value);
-
-    /**
-     * Sets a header with the specified name and values. If there is an existing header with the same name, it is
-     * removed. This getMethod can be represented approximately as the following code:
-     *
-     * <pre>
-     * headers.remove(name);
-     * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
-     * }
-     * </pre>
-     *
-     * @param name the name of the headers being set
-     * @param values the values of the headers being set
-     * @return {@code this}
-     */
-    Headers<T> setObject(T name, Iterable<?> values);
-
-    /**
-     * Sets a header with the specified name and values. If there is an existing header with the same name, it is
-     * removed. This getMethod can be represented approximately as the following code:
-     *
-     * <pre>
-     * headers.remove(name);
-     * for (Object v : values) {
-     *     if (v == null) {
-     *         break;
-     *     }
-     *     headers.add(name, v);
-     * }
-     * </pre>
-     *
-     * @param name the name of the headers being set
-     * @param values the values of the headers being set
-     * @return {@code this}
-     */
-    Headers<T> setObject(T name, Object... values);
+    T setObject(K name, Object... values);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -995,7 +897,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setBoolean(T name, boolean value);
+    T setBoolean(K name, boolean value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1003,7 +905,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setByte(T name, byte value);
+    T setByte(K name, byte value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1011,7 +913,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setChar(T name, char value);
+    T setChar(K name, char value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1019,7 +921,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setShort(T name, short value);
+    T setShort(K name, short value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1027,7 +929,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setInt(T name, int value);
+    T setInt(K name, int value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1035,7 +937,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setLong(T name, long value);
+    T setLong(K name, long value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1043,7 +945,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setFloat(T name, float value);
+    T setFloat(K name, float value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1051,7 +953,7 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setDouble(T name, double value);
+    T setDouble(K name, double value);
 
     /**
      * Set the {@code name} to {@code value}. This will remove all previous values associated with {@code name}.
@@ -1059,52 +961,38 @@ public interface Headers<T> extends Iterable<Map.Entry<T, T>> {
      * @param value The value
      * @return {@code this}
      */
-    Headers<T> setTimeMillis(T name, long value);
+    T setTimeMillis(K name, long value);
 
     /**
-     * Cleans the current header entries and copies all header entries of the specified {@code headers}.
+     * Clears the current header entries and copies all header entries of the specified {@code headers}.
      *
      * @return {@code this}
      */
-    Headers<T> set(Headers<T> headers);
+    T set(Headers<? extends K, ? extends V, ?> headers);
 
     /**
-     * Retains all current headers but calls {@link #set(Object, Object)} for each entry in {@code headers}
+     * Retains all current headers but calls {@link #set(T, T)} for each entry in {@code headers}.
      *
-     * @param headers The headers used to {@link #set(Object, Object)} values in this instance
+     * @param headers The headers used to {@link #set(T, T)} values in this instance
      * @return {@code this}
      */
-    Headers<T> setAll(Headers<T> headers);
+    T setAll(Headers<? extends K, ? extends V, ?> headers);
 
     /**
-     * Removes the header with the specified name.
+     * Removes all headers with the specified {@code name}.
      *
-     * @param name The name of the header to remove
-     * @return {@code true} if and only if at least one entry has been removed
+     * @param name the header name
+     * @return {@code true} if at least one entry has been removed.
      */
-    boolean remove(T name);
+    boolean remove(K name);
 
     /**
-     * Removes all headers.
+     * Removes all headers. After a call to this method {@link #size()} equals {@code 0}.
      *
      * @return {@code this}
      */
-    Headers<T> clear();
+    T clear();
 
     @Override
-    Iterator<Entry<T, T>> iterator();
-
-    /**
-     * Provides an abstraction to iterate over elements maintained in the {@link Headers} collection.
-     * @param visitor The visitor which will visit each element in this map
-     * @return The last entry before iteration stopped or {@code null} if iteration went past the end
-     */
-    Map.Entry<T, T> forEachEntry(EntryVisitor<T> visitor) throws Exception;
-
-    /**
-     * Provides an abstraction to iterate over elements maintained in the {@link Headers} collection.
-     * @param visitor The visitor which will visit each element in this map
-     * @return The last key before iteration stopped or {@code null} if iteration went past the end
-     */
-    T forEachName(NameVisitor<T> visitor) throws Exception;
+    Iterator<Entry<K, V>> iterator();
 }

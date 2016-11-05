@@ -16,8 +16,10 @@
 package io.netty.channel.oio;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelConfig;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelMetadata;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.ChannelOutboundBuffer;
@@ -39,17 +41,11 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
             " (expected: " + StringUtil.simpleClassName(ByteBuf.class) + ", " +
             StringUtil.simpleClassName(FileRegion.class) + ')';
 
-    private volatile boolean inputShutdown;
-
     /**
      * @see AbstractOioByteChannel#AbstractOioByteChannel(Channel)
      */
     protected AbstractOioByteChannel(Channel parent) {
         super(parent);
-    }
-
-    protected boolean isInputShutdown() {
-        return inputShutdown;
     }
 
     @Override
@@ -58,46 +54,79 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
     }
 
     /**
-     * Check if the input was shutdown and if so return {@code true}. The default implementation sleeps also for
-     * {@link #SO_TIMEOUT} milliseconds to simulate some blocking.
+     * Determine if the input side of this channel is shutdown.
+     * @return {@code true} if the input side of this channel is shutdown.
      */
-    protected boolean checkInputShutdown() {
-        if (inputShutdown) {
-            try {
-                Thread.sleep(SO_TIMEOUT);
-            } catch (InterruptedException e) {
-                // ignore
+    protected abstract boolean isInputShutdown();
+
+    /**
+     * Shutdown the input side of this channel.
+     * @return A channel future that will complete when the shutdown is complete.
+     */
+    protected abstract ChannelFuture shutdownInput();
+
+    private void closeOnRead(ChannelPipeline pipeline) {
+        if (isOpen()) {
+            if (Boolean.TRUE.equals(config().getOption(ChannelOption.ALLOW_HALF_CLOSURE))) {
+                shutdownInput();
+                pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
+            } else {
+                unsafe().close(unsafe().voidPromise());
             }
-            return true;
         }
-        return false;
+    }
+
+    private void handleReadException(ChannelPipeline pipeline, ByteBuf byteBuf, Throwable cause, boolean close,
+            RecvByteBufAllocator.Handle allocHandle) {
+        if (byteBuf != null) {
+            if (byteBuf.isReadable()) {
+                readPending = false;
+                pipeline.fireChannelRead(byteBuf);
+            } else {
+                byteBuf.release();
+            }
+        }
+        allocHandle.readComplete();
+        pipeline.fireChannelReadComplete();
+        pipeline.fireExceptionCaught(cause);
+        if (close || cause instanceof IOException) {
+            closeOnRead(pipeline);
+        }
     }
 
     @Override
     protected void doRead() {
-        if (checkInputShutdown()) {
+        final ChannelConfig config = config();
+        if (isInputShutdown() || !readPending) {
+            // We have to check readPending here because the Runnable to read could have been scheduled and later
+            // during the same read loop readPending was set to false.
             return;
         }
-        final ChannelConfig config = config();
+        // In OIO we should set readPending to false even if the read was not successful so we can schedule
+        // another read on the event loop if no reads are done.
+        readPending = false;
+
         final ChannelPipeline pipeline = pipeline();
+        final ByteBufAllocator allocator = config.getAllocator();
+        final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+        allocHandle.reset(config);
 
-        RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
-
-        ByteBuf byteBuf = allocHandle.allocate(alloc());
-
-        boolean closed = false;
-        boolean read = false;
-        Throwable exception = null;
-        int localReadAmount = 0;
+        ByteBuf byteBuf = null;
+        boolean close = false;
+        boolean readData = false;
         try {
-            int totalReadAmount = 0;
-
-            for (;;) {
-                localReadAmount = doReadBytes(byteBuf);
-                if (localReadAmount > 0) {
-                    read = true;
-                } else if (localReadAmount < 0) {
-                    closed = true;
+            byteBuf = allocHandle.allocate(allocator);
+            do {
+                allocHandle.lastBytesRead(doReadBytes(byteBuf));
+                if (allocHandle.lastBytesRead() <= 0) {
+                    if (!byteBuf.isReadable()) { // nothing was read. release the buffer.
+                        byteBuf.release();
+                        byteBuf = null;
+                        close = allocHandle.lastBytesRead() < 0;
+                    }
+                    break;
+                } else {
+                    readData = true;
                 }
 
                 final int available = available();
@@ -105,15 +134,15 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
                     break;
                 }
 
+                // Oio collects consecutive read operations into 1 ByteBuf before propagating up the pipeline.
                 if (!byteBuf.isWritable()) {
                     final int capacity = byteBuf.capacity();
                     final int maxCapacity = byteBuf.maxCapacity();
                     if (capacity == maxCapacity) {
-                        if (read) {
-                            read = false;
-                            pipeline.fireChannelRead(byteBuf);
-                            byteBuf = alloc().buffer();
-                        }
+                        allocHandle.incMessagesRead(1);
+                        readPending = false;
+                        pipeline.fireChannelRead(byteBuf);
+                        byteBuf = allocHandle.allocate(allocator);
                     } else {
                         final int writerIndex = byteBuf.writerIndex();
                         if (writerIndex + available > maxCapacity) {
@@ -123,61 +152,34 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
                         }
                     }
                 }
+            } while (allocHandle.continueReading());
 
-                if (totalReadAmount >= Integer.MAX_VALUE - localReadAmount) {
-                    // Avoid overflow.
-                    totalReadAmount = Integer.MAX_VALUE;
-                    break;
-                }
-
-                totalReadAmount += localReadAmount;
-
-                if (!config.isAutoRead()) {
-                    // stop reading until next Channel.read() call
-                    // See https://github.com/netty/netty/issues/1363
-                    break;
-                }
-            }
-            allocHandle.record(totalReadAmount);
-
-        } catch (Throwable t) {
-            exception = t;
-        } finally {
-            if (read) {
-                pipeline.fireChannelRead(byteBuf);
-            } else {
-                // nothing read into the buffer so release it
-                byteBuf.release();
-            }
-
-            pipeline.fireChannelReadComplete();
-            if (exception != null) {
-                if (exception instanceof IOException) {
-                    closed = true;
-                    pipeline().fireExceptionCaught(exception);
+            if (byteBuf != null) {
+                // It is possible we allocated a buffer because the previous one was not writable, but then didn't use
+                // it because allocHandle.continueReading() returned false.
+                if (byteBuf.isReadable()) {
+                    readPending = false;
+                    pipeline.fireChannelRead(byteBuf);
                 } else {
-                    pipeline.fireExceptionCaught(exception);
-                    unsafe().close(voidPromise());
+                    byteBuf.release();
                 }
+                byteBuf = null;
             }
 
-            if (closed) {
-                inputShutdown = true;
-                if (isOpen()) {
-                    if (Boolean.TRUE.equals(config().getOption(ChannelOption.ALLOW_HALF_CLOSURE))) {
-                        pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
-                    } else {
-                        unsafe().close(unsafe().voidPromise());
-                    }
-                }
+            if (readData) {
+                allocHandle.readComplete();
+                pipeline.fireChannelReadComplete();
             }
-            if (localReadAmount == 0 && isActive()) {
-                // If the read amount was 0 and the channel is still active we need to trigger a new read()
-                // as otherwise we will never try to read again and the user will never know.
-                // Just call read() is ok here as it will be submitted to the EventLoop as a task and so we are
-                // able to process the rest of the tasks in the queue first.
-                //
-                // See https://github.com/netty/netty/issues/2404
+
+            if (close) {
+                closeOnRead(pipeline);
+            }
+        } catch (Throwable t) {
+            handleReadException(pipeline, byteBuf, t, close, allocHandle);
+        } finally {
+            if (readPending || config.isAutoRead() || !readData && isActive()) {
+                // Reading 0 bytes could mean there is a SocketTimeout and no data was actually read, so we
+                // should execute read() again because no data may have been read.
                 read();
             }
         }
@@ -203,9 +205,9 @@ public abstract class AbstractOioByteChannel extends AbstractOioChannel {
                 in.remove();
             } else if (msg instanceof FileRegion) {
                 FileRegion region = (FileRegion) msg;
-                long transfered = region.transfered();
+                long transferred = region.transferred();
                 doWriteFileRegion(region);
-                in.progress(region.transfered() - transfered);
+                in.progress(region.transferred() - transferred);
                 in.remove();
             } else {
                 in.remove(new UnsupportedOperationException(

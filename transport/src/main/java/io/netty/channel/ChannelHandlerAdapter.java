@@ -19,10 +19,9 @@ package io.netty.channel;
 import io.netty.util.internal.InternalThreadLocalMap;
 
 import java.util.Map;
-import java.util.WeakHashMap;
 
 /**
- * Skelton implementation of a {@link ChannelHandler}.
+ * Skeleton implementation of a {@link ChannelHandler}.
  */
 public abstract class ChannelHandlerAdapter implements ChannelHandler {
 

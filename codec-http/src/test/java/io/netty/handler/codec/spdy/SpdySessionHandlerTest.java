@@ -105,7 +105,7 @@ public class SpdySessionHandlerTest {
 
         SpdySynStreamFrame spdySynStreamFrame =
                 new DefaultSpdySynStreamFrame(localStreamId, 0, (byte) 0);
-        spdySynStreamFrame.headers().set("Compression", "test");
+        spdySynStreamFrame.headers().set("compression", "test");
 
         SpdyDataFrame spdyDataFrame = new DefaultSpdyDataFrame(localStreamId);
         spdyDataFrame.setLast(true);
@@ -138,8 +138,8 @@ public class SpdySessionHandlerTest {
         assertNull(sessionHandler.readOutbound());
         SpdyHeadersFrame spdyHeadersFrame = new DefaultSpdyHeadersFrame(localStreamId);
 
-        spdyHeadersFrame.headers().add("HEADER", "test1");
-        spdyHeadersFrame.headers().add("HEADER", "test2");
+        spdyHeadersFrame.headers().add("header", "test1");
+        spdyHeadersFrame.headers().add("header", "test2");
 
         sessionHandler.writeInbound(spdyHeadersFrame);
         assertHeaders(sessionHandler.readOutbound(), localStreamId, false, spdyHeadersFrame.headers());
@@ -245,7 +245,7 @@ public class SpdySessionHandlerTest {
 
         SpdySynStreamFrame spdySynStreamFrame =
                 new DefaultSpdySynStreamFrame(localStreamId, 0, (byte) 0);
-        spdySynStreamFrame.headers().set("Compression", "test");
+        spdySynStreamFrame.headers().set("compression", "test");
 
         SpdyDataFrame spdyDataFrame = new DefaultSpdyDataFrame(localStreamId);
         spdyDataFrame.setLast(true);

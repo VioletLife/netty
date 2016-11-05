@@ -15,22 +15,20 @@
 
 package io.netty.handler.codec.http2;
 
-import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_MAX_HEADER_SIZE;
-import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_HEADER_TABLE_SIZE;
-import static io.netty.handler.codec.http2.Http2TestUtil.as;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http2.internal.hpack.Encoder;
+import io.netty.util.AsciiString;
+import org.junit.Before;
+import org.junit.Test;
+
+import static io.netty.handler.codec.http2.Http2CodecUtil.DEFAULT_HEADER_LIST_SIZE;
+import static io.netty.handler.codec.http2.Http2HeadersEncoder.NEVER_SENSITIVE;
+import static io.netty.handler.codec.http2.Http2TestUtil.newTestEncoder;
 import static io.netty.handler.codec.http2.Http2TestUtil.randomBytes;
 import static io.netty.util.CharsetUtil.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-
-import java.io.ByteArrayOutputStream;
-
-import org.junit.Before;
-import org.junit.Test;
-
-import com.twitter.hpack.Encoder;
 
 /**
  * Tests for {@link DefaultHttp2HeadersDecoder}.
@@ -41,17 +39,17 @@ public class DefaultHttp2HeadersDecoderTest {
 
     @Before
     public void setup() {
-        decoder = new DefaultHttp2HeadersDecoder();
+        decoder = new DefaultHttp2HeadersDecoder(false);
     }
 
     @Test
     public void decodeShouldSucceed() throws Exception {
         ByteBuf buf = encode(b(":method"), b("GET"), b("akey"), b("avalue"), randomBytes(), randomBytes());
         try {
-            Http2Headers headers = decoder.decodeHeaders(buf);
+            Http2Headers headers = decoder.decodeHeaders(0, buf);
             assertEquals(3, headers.size());
             assertEquals("GET", headers.method().toString());
-            assertEquals("avalue", headers.get(as("akey")).toString());
+            assertEquals("avalue", headers.get(new AsciiString("akey")).toString());
         } finally {
             buf.release();
         }
@@ -59,9 +57,9 @@ public class DefaultHttp2HeadersDecoderTest {
 
     @Test(expected = Http2Exception.class)
     public void testExceedHeaderSize() throws Exception {
-        ByteBuf buf = encode(randomBytes(DEFAULT_MAX_HEADER_SIZE), randomBytes(1));
+        ByteBuf buf = encode(randomBytes(DEFAULT_HEADER_LIST_SIZE), randomBytes(1));
         try {
-            decoder.decodeHeaders(buf);
+            decoder.decodeHeaders(0, buf);
             fail();
         } finally {
             buf.release();
@@ -73,13 +71,13 @@ public class DefaultHttp2HeadersDecoderTest {
     }
 
     private static ByteBuf encode(byte[]... entries) throws Exception {
-        Encoder encoder = new Encoder(MAX_HEADER_TABLE_SIZE);
-        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        Encoder encoder = newTestEncoder();
+        ByteBuf out = Unpooled.buffer();
+        Http2Headers http2Headers = new DefaultHttp2Headers(false);
         for (int ix = 0; ix < entries.length;) {
-            byte[] key = entries[ix++];
-            byte[] value = entries[ix++];
-            encoder.encodeHeader(stream, key, value, false);
+            http2Headers.add(new AsciiString(entries[ix++], false), new AsciiString(entries[ix++], false));
         }
-        return Unpooled.wrappedBuffer(stream.toByteArray());
+        encoder.encodeHeaders(3 /* randomly chosen */, out, http2Headers, NEVER_SENSITIVE);
+        return out;
     }
 }

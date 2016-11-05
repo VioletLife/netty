@@ -31,6 +31,8 @@ import io.netty.handler.codec.http.HttpServerUpgradeHandler.UpgradeCodecFactory;
 import io.netty.handler.codec.http2.Http2CodecUtil;
 import io.netty.handler.codec.http2.Http2ServerUpgradeCodec;
 import io.netty.handler.ssl.SslContext;
+import io.netty.util.AsciiString;
+import io.netty.util.ReferenceCountUtil;
 
 /**
  * Sets up the Netty pipeline for the example server. Depending on the endpoint config, sets up the
@@ -40,9 +42,9 @@ public class Http2ServerInitializer extends ChannelInitializer<SocketChannel> {
 
     private static final UpgradeCodecFactory upgradeCodecFactory = new UpgradeCodecFactory() {
         @Override
-        public UpgradeCodec newUpgradeCodec(String protocol) {
-            if (Http2CodecUtil.HTTP_UPGRADE_PROTOCOL_NAME.equals(protocol)) {
-                return new Http2ServerUpgradeCodec(new HelloWorldHttp2Handler());
+        public UpgradeCodec newUpgradeCodec(CharSequence protocol) {
+            if (AsciiString.contentEquals(Http2CodecUtil.HTTP_UPGRADE_PROTOCOL_NAME, protocol)) {
+                return new Http2ServerUpgradeCodec(new HelloWorldHttp2HandlerBuilder().build());
             } else {
                 return null;
             }
@@ -98,7 +100,7 @@ public class Http2ServerInitializer extends ChannelInitializer<SocketChannel> {
                 ChannelHandlerContext thisCtx = pipeline.context(this);
                 pipeline.addAfter(thisCtx.name(), null, new HelloWorldHttp1Handler("Direct. No Upgrade Attempted."));
                 pipeline.replace(this, null, new HttpObjectAggregator(maxHttpContentLength));
-                ctx.fireChannelRead(msg);
+                ctx.fireChannelRead(ReferenceCountUtil.retain(msg));
             }
         });
 

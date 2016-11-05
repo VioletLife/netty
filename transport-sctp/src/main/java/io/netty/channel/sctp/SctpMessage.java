@@ -17,7 +17,6 @@ package io.netty.channel.sctp;
 
 import com.sun.nio.sctp.MessageInfo;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.DefaultByteBufHolder;
 
 /**
@@ -143,25 +142,33 @@ public final class SctpMessage extends DefaultByteBufHolder {
     public int hashCode() {
         int result = streamIdentifier;
         result = 31 * result + protocolIdentifier;
+        // values 1231 and 1237 are referenced in the javadocs of Boolean#hashCode()
+        result = 31 * result + (unordered ? 1231 : 1237);
         result = 31 * result + content().hashCode();
         return result;
     }
 
     @Override
     public SctpMessage copy() {
-        if (msgInfo == null) {
-            return new SctpMessage(protocolIdentifier, streamIdentifier, unordered, content().copy());
-        } else {
-            return new SctpMessage(msgInfo, content().copy());
-        }
+        return (SctpMessage) super.copy();
     }
 
     @Override
     public SctpMessage duplicate() {
+        return (SctpMessage) super.duplicate();
+    }
+
+    @Override
+    public SctpMessage retainedDuplicate() {
+        return (SctpMessage) super.retainedDuplicate();
+    }
+
+    @Override
+    public SctpMessage replace(ByteBuf content) {
         if (msgInfo == null) {
-            return new SctpMessage(protocolIdentifier, streamIdentifier, unordered, content().duplicate());
+            return new SctpMessage(protocolIdentifier, streamIdentifier, unordered, content);
         } else {
-            return new SctpMessage(msgInfo, content().copy());
+            return new SctpMessage(msgInfo, content);
         }
     }
 
@@ -191,15 +198,9 @@ public final class SctpMessage extends DefaultByteBufHolder {
 
     @Override
     public String toString() {
-        if (refCnt() == 0) {
-            return "SctpFrame{" +
-                    "streamIdentifier=" + streamIdentifier + ", protocolIdentifier=" + protocolIdentifier +
-                    ", unordered=" + unordered +
-                    ", data=(FREED)}";
-        }
         return "SctpFrame{" +
-                "streamIdentifier=" + streamIdentifier + ", protocolIdentifier=" + protocolIdentifier +
-                ", unordered=" + unordered +
-                ", data=" + ByteBufUtil.hexDump(content()) + '}';
+               "streamIdentifier=" + streamIdentifier + ", protocolIdentifier=" + protocolIdentifier +
+               ", unordered=" + unordered +
+               ", data=" + contentToString() + '}';
     }
 }

@@ -62,6 +62,13 @@ public class HttpClientUpgradeHandler extends HttpObjectAggregator implements Ch
      * The source codec that is used in the pipeline initially.
      */
     public interface SourceCodec {
+
+        /**
+         * Removes or disables the encoder of this codec so that the {@link UpgradeCodec} can send an initial greeting
+         * (if any).
+         */
+        void prepareUpgradeFrom(ChannelHandlerContext ctx);
+
         /**
          * Removes this codec (i.e. all associated handlers) from the pipeline.
          */
@@ -75,13 +82,13 @@ public class HttpClientUpgradeHandler extends HttpObjectAggregator implements Ch
         /**
          * Returns the name of the protocol supported by this codec, as indicated by the {@code 'UPGRADE'} header.
          */
-        String protocol();
+        CharSequence protocol();
 
         /**
          * Sets any protocol-specific headers required to the upgrade request. Returns the names of
          * all headers that were added. These headers will be used to populate the CONNECTION header.
          */
-        Collection<String> setUpgradeHeaders(ChannelHandlerContext ctx, HttpRequest upgradeRequest);
+        Collection<CharSequence> setUpgradeHeaders(ChannelHandlerContext ctx, HttpRequest upgradeRequest);
 
         /**
          * Performs an HTTP protocol upgrade from the source codec. This method is responsible for
@@ -188,6 +195,20 @@ public class HttpClientUpgradeHandler extends HttpObjectAggregator implements Ch
                 throw new IllegalStateException("Read HTTP response without requesting protocol switch");
             }
 
+            if (msg instanceof HttpResponse) {
+                HttpResponse rep = (HttpResponse) msg;
+                if (!SWITCHING_PROTOCOLS.equals(rep.status())) {
+                    // The server does not support the requested protocol, just remove this handler
+                    // and continue processing HTTP.
+                    // NOTE: not releasing the response since we're letting it propagate to the
+                    // next handler.
+                    ctx.fireUserEventTriggered(UpgradeEvent.UPGRADE_REJECTED);
+                    removeThisHandler(ctx);
+                    ctx.fireChannelRead(msg);
+                    return;
+                }
+            }
+
             if (msg instanceof FullHttpResponse) {
                 response = (FullHttpResponse) msg;
                 // Need to retain since the base class will release after returning from this method.
@@ -205,33 +226,22 @@ public class HttpClientUpgradeHandler extends HttpObjectAggregator implements Ch
                 response = (FullHttpResponse) out.get(0);
             }
 
-            if (!SWITCHING_PROTOCOLS.equals(response.status())) {
-                // The server does not support the requested protocol, just remove this handler
-                // and continue processing HTTP.
-                // NOTE: not releasing the response since we're letting it propagate to the
-                // next handler.
-                ctx.fireUserEventTriggered(UpgradeEvent.UPGRADE_REJECTED);
-                removeThisHandler(ctx);
-                return;
-            }
-
             CharSequence upgradeHeader = response.headers().get(HttpHeaderNames.UPGRADE);
-            if (upgradeHeader == null) {
+            if (upgradeHeader != null && !AsciiString.contentEqualsIgnoreCase(upgradeCodec.protocol(), upgradeHeader)) {
                 throw new IllegalStateException(
-                        "Switching Protocols response missing UPGRADE header");
-            }
-            if (!AsciiString.equalsIgnoreCase(upgradeCodec.protocol(), upgradeHeader)) {
-                throw new IllegalStateException(
-                        "Switching Protocols response with unexpected UPGRADE protocol: "
-                                + upgradeHeader);
+                        "Switching Protocols response with unexpected UPGRADE protocol: " + upgradeHeader);
             }
 
             // Upgrade to the new protocol.
-            sourceCodec.upgradeFrom(ctx);
+            sourceCodec.prepareUpgradeFrom(ctx);
             upgradeCodec.upgradeTo(ctx, response);
 
             // Notify that the upgrade to the new protocol completed successfully.
             ctx.fireUserEventTriggered(UpgradeEvent.UPGRADE_SUCCESSFUL);
+
+            // We guarantee UPGRADE_SUCCESSFUL event will be arrived at the next handler
+            // before http2 setting frame and http response.
+            sourceCodec.upgradeFrom(ctx);
 
             // We switched protocols, so we're done with the upgrade response.
             // Release it and clear it from the output.
@@ -257,16 +267,16 @@ public class HttpClientUpgradeHandler extends HttpObjectAggregator implements Ch
         request.headers().set(HttpHeaderNames.UPGRADE, upgradeCodec.protocol());
 
         // Add all protocol-specific headers to the request.
-        Set<String> connectionParts = new LinkedHashSet<String>(2);
+        Set<CharSequence> connectionParts = new LinkedHashSet<CharSequence>(2);
         connectionParts.addAll(upgradeCodec.setUpgradeHeaders(ctx, request));
 
         // Set the CONNECTION header from the set of all protocol-specific headers that were added.
         StringBuilder builder = new StringBuilder();
-        for (String part : connectionParts) {
+        for (CharSequence part : connectionParts) {
             builder.append(part);
             builder.append(',');
         }
-        builder.append(HttpHeaderNames.UPGRADE);
+        builder.append(HttpHeaderValues.UPGRADE);
         request.headers().set(HttpHeaderNames.CONNECTION, builder.toString());
     }
 }

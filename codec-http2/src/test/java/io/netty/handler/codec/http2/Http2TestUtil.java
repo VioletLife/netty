@@ -15,20 +15,33 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelPromise;
+import io.netty.channel.DefaultChannelPromise;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.http2.internal.hpack.Decoder;
+import io.netty.handler.codec.http2.internal.hpack.Encoder;
 import io.netty.util.AsciiString;
-import io.netty.util.ByteString;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.concurrent.ImmediateEventExecutor;
+import junit.framework.AssertionFailedError;
 
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 
+import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_HEADER_LIST_SIZE;
+import static io.netty.handler.codec.http2.Http2CodecUtil.MAX_HEADER_TABLE_SIZE;
+
 /**
  * Utilities for the integration tests.
  */
-final class Http2TestUtil {
+public final class Http2TestUtil {
     /**
      * Interface that allows for running a operation that throws a {@link Http2Exception}.
      */
@@ -53,20 +66,6 @@ final class Http2TestUtil {
     }
 
     /**
-     * Converts a {@link String} into an {@link AsciiString}.
-     */
-    public static AsciiString as(String value) {
-        return new AsciiString(value);
-    }
-
-    /**
-     * Converts a byte array into an {@link AsciiString}.
-     */
-    public static ByteString as(byte[] value) {
-        return new ByteString(value);
-    }
-
-    /**
      * Returns a byte array filled with random data.
      */
     public static byte[] randomBytes() {
@@ -85,8 +84,48 @@ final class Http2TestUtil {
     /**
      * Returns an {@link AsciiString} that wraps a randomly-filled byte array.
      */
-    public static ByteString randomString() {
-        return as(randomBytes());
+    public static AsciiString randomString() {
+        return new AsciiString(randomBytes());
+    }
+
+    public static CharSequence of(String s) {
+        return s;
+    }
+
+    public static Encoder newTestEncoder() {
+        try {
+            return newTestEncoder(true, MAX_HEADER_LIST_SIZE, MAX_HEADER_TABLE_SIZE);
+        } catch (Http2Exception e) {
+            throw new Error("max size not allowed?", e);
+        }
+    }
+
+    public static Encoder newTestEncoder(boolean ignoreMaxHeaderListSize,
+                                         long maxHeaderListSize, long maxHeaderTableSize) throws Http2Exception {
+        Encoder encoder = new Encoder();
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            encoder.setMaxHeaderTableSize(buf, maxHeaderTableSize);
+            encoder.setMaxHeaderListSize(maxHeaderListSize);
+        } finally  {
+            buf.release();
+        }
+        return encoder;
+    }
+
+    public static Decoder newTestDecoder() {
+        try {
+            return newTestDecoder(MAX_HEADER_LIST_SIZE, MAX_HEADER_TABLE_SIZE);
+        } catch (Http2Exception e) {
+            throw new Error("max size not allowed?", e);
+        }
+    }
+
+    public static Decoder newTestDecoder(long maxHeaderListSize, long maxHeaderTableSize) throws Http2Exception {
+        Decoder decoder = new Decoder();
+        decoder.setMaxHeaderTableSize(maxHeaderTableSize);
+        decoder.setMaxHeaderListSize(maxHeaderListSize);
+        return decoder;
     }
 
     private Http2TestUtil() {
@@ -103,7 +142,7 @@ final class Http2TestUtil {
         }
 
         FrameAdapter(Http2Connection connection, Http2FrameListener listener, CountDownLatch latch) {
-            this(connection, new DefaultHttp2FrameReader(), listener, latch);
+            this(connection, new DefaultHttp2FrameReader(false), listener, latch);
         }
 
         FrameAdapter(Http2Connection connection, DefaultHttp2FrameReader reader, Http2FrameListener listener,
@@ -114,7 +153,7 @@ final class Http2TestUtil {
             this.latch = latch;
         }
 
-        public Http2Stream getOrCreateStream(int streamId, boolean halfClosed) throws Http2Exception {
+        private Http2Stream getOrCreateStream(int streamId, boolean halfClosed) throws Http2Exception {
             return getOrCreateStream(connection, streamId, halfClosed);
         }
 
@@ -392,5 +431,53 @@ final class Http2TestUtil {
             listener.onUnknownFrame(ctx, frameType, streamId, flags, payload);
             messageLatch.countDown();
         }
+    }
+
+    static ChannelPromise newVoidPromise(final Channel channel) {
+        return new DefaultChannelPromise(channel, ImmediateEventExecutor.INSTANCE) {
+            @Override
+            public ChannelPromise addListener(
+                    GenericFutureListener<? extends Future<? super Void>> listener) {
+                throw new AssertionFailedError();
+            }
+
+            @Override
+            public ChannelPromise addListeners(
+                    GenericFutureListener<? extends Future<? super Void>>... listeners) {
+                throw new AssertionFailedError();
+            }
+
+            @Override
+            public boolean isVoid() {
+                return true;
+            }
+
+            @Override
+            public boolean tryFailure(Throwable cause) {
+                channel().pipeline().fireExceptionCaught(cause);
+                return true;
+            }
+
+            @Override
+            public ChannelPromise setFailure(Throwable cause) {
+                tryFailure(cause);
+                return this;
+            }
+
+            @Override
+            public ChannelPromise unvoid() {
+                ChannelPromise promise =
+                        new DefaultChannelPromise(channel, ImmediateEventExecutor.INSTANCE);
+                promise.addListener(new ChannelFutureListener() {
+                    @Override
+                    public void operationComplete(ChannelFuture future) throws Exception {
+                        if (!future.isSuccess()) {
+                            channel().pipeline().fireExceptionCaught(future.cause());
+                        }
+                    }
+                });
+                return promise;
+            }
+        };
     }
 }

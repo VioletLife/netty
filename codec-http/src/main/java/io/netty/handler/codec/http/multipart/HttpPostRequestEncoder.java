@@ -16,19 +16,21 @@
 package io.netty.handler.codec.http.multipart;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.DecoderResult;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.DefaultHttpContent;
+import io.netty.handler.codec.http.EmptyHttpHeaders;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpConstants;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpHeaderUtil;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
+import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.stream.ChunkedInput;
@@ -46,7 +48,7 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-import static io.netty.buffer.Unpooled.*;
+import static io.netty.buffer.Unpooled.wrappedBuffer;
 
 /**
  * This encoder will help to encode Request for a FORM as POST.
@@ -59,7 +61,7 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
     public enum EncoderMode {
         /**
          * Legacy mode which should work for most. It is known to not work with OAUTH. For OAUTH use
-         * {@link EncoderMode#RFC3986}. The W3C form recommentations this for submitting post form data.
+         * {@link EncoderMode#RFC3986}. The W3C form recommendations this for submitting post form data.
          */
         RFC1738,
 
@@ -753,14 +755,14 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
             if (transferEncoding != null) {
                 headers.remove(HttpHeaderNames.TRANSFER_ENCODING);
                 for (CharSequence v : transferEncoding) {
-                    if (HttpHeaderValues.CHUNKED.equalsIgnoreCase(v)) {
+                    if (HttpHeaderValues.CHUNKED.contentEqualsIgnoreCase(v)) {
                         // ignore
                     } else {
                         headers.add(HttpHeaderNames.TRANSFER_ENCODING, v);
                     }
                 }
             }
-            HttpHeaderUtil.setTransferEncodingChunked(request, true);
+            HttpUtil.setTransferEncodingChunked(request, true);
 
             // wrap to hide the possible content
             return new WrappedHttpRequest(request);
@@ -834,7 +836,6 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
         int length = currentBuffer.readableBytes();
         if (length > HttpPostBodyUtil.chunkSize) {
             ByteBuf slice = currentBuffer.slice(currentBuffer.readerIndex(), HttpPostBodyUtil.chunkSize);
-            currentBuffer.retain();
             currentBuffer.skipBytes(HttpPostBodyUtil.chunkSize);
             return slice;
         } else {
@@ -996,6 +997,12 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
         // cleanFiles();
     }
 
+    @Deprecated
+    @Override
+    public HttpContent readChunk(ChannelHandlerContext ctx) throws Exception {
+        return readChunk(ctx.alloc());
+    }
+
     /**
      * Returns the next available HttpChunk. The caller is responsible to test if this chunk is the last one (isLast()),
      * in order to stop calling this getMethod.
@@ -1005,7 +1012,7 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
      *             if the encoding is in error
      */
     @Override
-    public HttpContent readChunk(ChannelHandlerContext ctx) throws Exception {
+    public HttpContent readChunk(ByteBufAllocator allocator) throws Exception {
         if (isLastChunkSent) {
             return null;
         } else {
@@ -1231,45 +1238,24 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
             return this;
         }
 
-        /**
-         * Copy this object
-         *
-         * @param copyContent
-         * <ul>
-         * <li>{@code true} if this object's {@link #content()} should be used to copy.</li>
-         * <li>{@code false} if {@code newContent} should be used instead.</li>
-         * </ul>
-         * @param newContent
-         * <ul>
-         * <li>if {@code copyContent} is false then this will be used in the copy's content.</li>
-         * <li>if {@code null} then a default buffer of 0 size will be selected</li>
-         * </ul>
-         * @return A copy of this object
-         */
-        private FullHttpRequest copy(boolean copyContent, ByteBuf newContent) {
-            DefaultFullHttpRequest copy = new DefaultFullHttpRequest(
-                    protocolVersion(), method(), uri(),
-                    copyContent ? content().copy() :
-                            newContent == null ? buffer(0) : newContent);
-            copy.headers().set(headers());
-            copy.trailingHeaders().set(trailingHeaders());
-            return copy;
-        }
-
-        @Override
-        public FullHttpRequest copy(ByteBuf newContent) {
-            return copy(false, newContent);
-        }
-
         @Override
         public FullHttpRequest copy() {
-            return copy(true, null);
+            return replace(content().copy());
         }
 
         @Override
         public FullHttpRequest duplicate() {
-            DefaultFullHttpRequest duplicate = new DefaultFullHttpRequest(
-                    getProtocolVersion(), getMethod(), getUri(), content().duplicate());
+            return replace(content().duplicate());
+        }
+
+        @Override
+        public FullHttpRequest retainedDuplicate() {
+            return replace(content().retainedDuplicate());
+        }
+
+        @Override
+        public FullHttpRequest replace(ByteBuf content) {
+            DefaultFullHttpRequest duplicate = new DefaultFullHttpRequest(protocolVersion(), method(), uri(), content);
             duplicate.headers().set(headers());
             duplicate.trailingHeaders().set(trailingHeaders());
             return duplicate;
@@ -1309,7 +1295,7 @@ public class HttpPostRequestEncoder implements ChunkedInput<HttpContent> {
             if (content instanceof LastHttpContent) {
                 return ((LastHttpContent) content).trailingHeaders();
             } else {
-                return HttpHeaders.EMPTY_HEADERS;
+                return EmptyHttpHeaders.INSTANCE;
             }
         }
 

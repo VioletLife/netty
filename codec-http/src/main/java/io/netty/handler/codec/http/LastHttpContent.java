@@ -45,8 +45,18 @@ public interface LastHttpContent extends HttpContent {
         }
 
         @Override
+        public LastHttpContent replace(ByteBuf content) {
+            return new DefaultLastHttpContent(content);
+        }
+
+        @Override
+        public LastHttpContent retainedDuplicate() {
+            return this;
+        }
+
+        @Override
         public HttpHeaders trailingHeaders() {
-            return HttpHeaders.EMPTY_HEADERS;
+            return EmptyHttpHeaders.INSTANCE;
         }
 
         @Override
@@ -112,6 +122,15 @@ public interface LastHttpContent extends HttpContent {
     LastHttpContent copy();
 
     @Override
+    LastHttpContent duplicate();
+
+    @Override
+    LastHttpContent retainedDuplicate();
+
+    @Override
+    LastHttpContent replace(ByteBuf content);
+
+    @Override
     LastHttpContent retain(int increment);
 
     @Override
@@ -122,7 +141,4 @@ public interface LastHttpContent extends HttpContent {
 
     @Override
     LastHttpContent touch(Object hint);
-
-    @Override
-    LastHttpContent duplicate();
 }

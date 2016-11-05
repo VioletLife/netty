@@ -14,6 +14,10 @@
  */
 package io.netty.handler.codec.http;
 
+import static io.netty.util.AsciiString.containsContentEqualsIgnoreCase;
+import static io.netty.util.AsciiString.containsAllContentEqualsIgnoreCase;
+
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
@@ -53,27 +57,27 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
          * Gets all protocol-specific headers required by this protocol for a successful upgrade.
          * Any supplied header will be required to appear in the {@link HttpHeaderNames#CONNECTION} header as well.
          */
-        Collection<String> requiredUpgradeHeaders();
+        Collection<CharSequence> requiredUpgradeHeaders();
 
         /**
-         * Adds any headers to the 101 Switching protocols response that are appropriate for this protocol.
+         * Prepares the {@code upgradeHeaders} for a protocol update based upon the contents of {@code upgradeRequest}.
+         * This method returns a boolean value to proceed or abort the upgrade in progress. If {@code false} is
+         * returned, the upgrade is aborted and the {@code upgradeRequest} will be passed through the inbound pipeline
+         * as if no upgrade was performed. If {@code true} is returned, the upgrade will proceed to the next
+         * step which invokes {@link #upgradeTo}. When returning {@code true}, you can add headers to
+         * the {@code upgradeHeaders} so that they are added to the 101 Switching protocols response.
          */
-        void prepareUpgradeResponse(ChannelHandlerContext ctx, FullHttpRequest upgradeRequest,
-                                    FullHttpResponse upgradeResponse);
+        boolean prepareUpgradeResponse(ChannelHandlerContext ctx, FullHttpRequest upgradeRequest,
+                                    HttpHeaders upgradeHeaders);
 
         /**
          * Performs an HTTP protocol upgrade from the source codec. This method is responsible for
          * adding all handlers required for the new protocol.
          *
          * @param ctx the context for the current handler.
-         * @param upgradeRequest the request that triggered the upgrade to this protocol. The
-         *            upgraded protocol is responsible for sending the response.
-         * @param upgradeResponse a 101 Switching Protocols response that is populated with the
-         *            {@link HttpHeaderNames#CONNECTION} and {@link HttpHeaderNames#UPGRADE} headers.
-         *            The protocol is required to send this before sending any other frames back to the client.
-         *            The headers may be augmented as necessary by the protocol before sending.
+         * @param upgradeRequest the request that triggered the upgrade to this protocol.
          */
-        void upgradeTo(ChannelHandlerContext ctx, FullHttpRequest upgradeRequest, FullHttpResponse upgradeResponse);
+        void upgradeTo(ChannelHandlerContext ctx, FullHttpRequest upgradeRequest);
     }
 
     /**
@@ -87,7 +91,7 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
          *
          * @return a new {@link UpgradeCodec}, or {@code null} if the specified protocol name is not supported
          */
-        UpgradeCodec newUpgradeCodec(String protocol);
+        UpgradeCodec newUpgradeCodec(CharSequence protocol);
     }
 
     /**
@@ -96,10 +100,10 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
      * (if required) can be sent using the new protocol.
      */
     public static final class UpgradeEvent implements ReferenceCounted {
-        private final String protocol;
+        private final CharSequence protocol;
         private final FullHttpRequest upgradeRequest;
 
-        private UpgradeEvent(String protocol, FullHttpRequest upgradeRequest) {
+        UpgradeEvent(CharSequence protocol, FullHttpRequest upgradeRequest) {
             this.protocol = protocol;
             this.upgradeRequest = upgradeRequest;
         }
@@ -107,7 +111,7 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
         /**
          * The protocol that the channel has been upgraded to.
          */
-        public String protocol() {
+        public CharSequence protocol() {
             return protocol;
         }
 
@@ -154,7 +158,7 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
 
         @Override
         public boolean release(int decrement) {
-            return upgradeRequest.release();
+            return upgradeRequest.release(decrement);
         }
 
         @Override
@@ -162,8 +166,6 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
             return "UpgradeEvent [protocol=" + protocol + ", upgradeRequest=" + upgradeRequest + ']';
         }
     }
-
-    private static final String UPGRADE_STRING = HttpHeaderNames.UPGRADE.toString();
 
     private final SourceCodec sourceCodec;
     private final UpgradeCodecFactory upgradeCodecFactory;
@@ -262,12 +264,12 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
      */
     private boolean upgrade(final ChannelHandlerContext ctx, final FullHttpRequest request) {
         // Select the best protocol based on those requested in the UPGRADE header.
-        final ArrayList<String> requestedProtocols = splitHeader(request.headers().get(HttpHeaderNames.UPGRADE));
+        final List<CharSequence> requestedProtocols = splitHeader(request.headers().get(HttpHeaderNames.UPGRADE));
         final int numRequestedProtocols = requestedProtocols.size();
         UpgradeCodec upgradeCodec = null;
-        String upgradeProtocol = null;
+        CharSequence upgradeProtocol = null;
         for (int i = 0; i < numRequestedProtocols; i ++) {
-            final String p = requestedProtocols.get(i);
+            final CharSequence p = requestedProtocols.get(i);
             final UpgradeCodec c = upgradeCodecFactory.newUpgradeCodec(p);
             if (c != null) {
                 upgradeProtocol = p;
@@ -288,26 +290,29 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
         }
 
         // Make sure the CONNECTION header contains UPGRADE as well as all protocol-specific headers.
-        Collection<String> requiredHeaders = upgradeCodec.requiredUpgradeHeaders();
-        List<String> values = splitHeader(connectionHeader);
-        if (!values.contains(UPGRADE_STRING) || !values.containsAll(requiredHeaders)) {
+        Collection<CharSequence> requiredHeaders = upgradeCodec.requiredUpgradeHeaders();
+        List<CharSequence> values = splitHeader(connectionHeader);
+        if (!containsContentEqualsIgnoreCase(values, HttpHeaderNames.UPGRADE) ||
+            !containsAllContentEqualsIgnoreCase(values, requiredHeaders)) {
             return false;
         }
 
         // Ensure that all required protocol-specific headers are found in the request.
-        for (String requiredHeader : requiredHeaders) {
+        for (CharSequence requiredHeader : requiredHeaders) {
             if (!request.headers().contains(requiredHeader)) {
                 return false;
             }
         }
 
-        // Create the user event to be fired once the upgrade completes.
-        final UpgradeEvent event = new UpgradeEvent(upgradeProtocol, request);
-
         // Prepare and send the upgrade response. Wait for this write to complete before upgrading,
         // since we need the old codec in-place to properly encode the response.
         final FullHttpResponse upgradeResponse = createUpgradeResponse(upgradeProtocol);
-        upgradeCodec.prepareUpgradeResponse(ctx, request, upgradeResponse);
+        if (!upgradeCodec.prepareUpgradeResponse(ctx, request, upgradeResponse.headers())) {
+            return false;
+        }
+
+        // Create the user event to be fired once the upgrade completes.
+        final UpgradeEvent event = new UpgradeEvent(upgradeProtocol, request);
 
         final UpgradeCodec finalUpgradeCodec = upgradeCodec;
         ctx.writeAndFlush(upgradeResponse).addListener(new ChannelFutureListener() {
@@ -317,7 +322,7 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
                     if (future.isSuccess()) {
                         // Perform the upgrade to the new protocol.
                         sourceCodec.upgradeFrom(ctx);
-                        finalUpgradeCodec.upgradeTo(ctx, request, upgradeResponse);
+                        finalUpgradeCodec.upgradeTo(ctx, request);
 
                         // Notify that the upgrade has occurred. Retain the event to offset
                         // the release() in the finally block.
@@ -340,11 +345,12 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
     /**
      * Creates the 101 Switching Protocols response message.
      */
-    private static FullHttpResponse createUpgradeResponse(String upgradeProtocol) {
-        DefaultFullHttpResponse res = new DefaultFullHttpResponse(HTTP_1_1, SWITCHING_PROTOCOLS);
+    private static FullHttpResponse createUpgradeResponse(CharSequence upgradeProtocol) {
+        DefaultFullHttpResponse res = new DefaultFullHttpResponse(HTTP_1_1, SWITCHING_PROTOCOLS,
+                Unpooled.EMPTY_BUFFER, false);
         res.headers().add(HttpHeaderNames.CONNECTION, HttpHeaderValues.UPGRADE);
         res.headers().add(HttpHeaderNames.UPGRADE, upgradeProtocol);
-        res.headers().add(HttpHeaderNames.CONTENT_LENGTH, "0");
+        res.headers().add(HttpHeaderNames.CONTENT_LENGTH, HttpHeaderValues.ZERO);
         return res;
     }
 
@@ -352,9 +358,9 @@ public class HttpServerUpgradeHandler extends HttpObjectAggregator {
      * Splits a comma-separated header value. The returned set is case-insensitive and contains each
      * part with whitespace removed.
      */
-    private static ArrayList<String> splitHeader(CharSequence header) {
+    private static List<CharSequence> splitHeader(CharSequence header) {
         final StringBuilder builder = new StringBuilder(header.length());
-        final ArrayList<String> protocols = new ArrayList<String>(4);
+        final List<CharSequence> protocols = new ArrayList<CharSequence>(4);
         for (int i = 0; i < header.length(); ++i) {
             char c = header.charAt(i);
             if (Character.isWhitespace(c)) {

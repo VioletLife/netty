@@ -16,9 +16,11 @@
 package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.util.AsciiString;
 import io.netty.util.CharsetUtil;
 
-import static io.netty.handler.codec.http.HttpConstants.*;
+import static io.netty.handler.codec.http.HttpConstants.SP;
 
 /**
  * Encodes an {@link HttpRequest} or an {@link HttpContent} into
@@ -27,7 +29,6 @@ import static io.netty.handler.codec.http.HttpConstants.*;
 public class HttpRequestEncoder extends HttpObjectEncoder<HttpRequest> {
     private static final char SLASH = '/';
     private static final char QUESTION_MARK = '?';
-    private static final byte[] CRLF = { CR, LF };
 
     @Override
     public boolean acceptOutboundMessage(Object msg) throws Exception {
@@ -36,7 +37,8 @@ public class HttpRequestEncoder extends HttpObjectEncoder<HttpRequest> {
 
     @Override
     protected void encodeInitialLine(ByteBuf buf, HttpRequest request) throws Exception {
-        request.method().encode(buf);
+        AsciiString method = request.method().asciiName();
+        ByteBufUtil.copy(method, method.arrayOffset(), buf, method.length());
         buf.writeByte(SP);
 
         // Add / as absolute path if no is present.

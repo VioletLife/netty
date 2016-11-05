@@ -187,13 +187,13 @@ public final class HttpUploadClient {
         );
 
         // send request
-        List<Entry<String, String>> entries = headers.entries();
         channel.writeAndFlush(request);
 
         // Wait for the server to close the connection.
         channel.closeFuture().sync();
 
-        return entries;
+        // convert headers to list
+        return headers.entries();
     }
 
     /**
@@ -264,7 +264,7 @@ public final class HttpUploadClient {
      */
     private static void formpostmultipart(
             Bootstrap bootstrap, String host, int port, URI uriFile, HttpDataFactory factory,
-            List<Entry<String, String>> headers, List<InterfaceHttpData> bodylist) throws Exception {
+            Iterable<Entry<String, String>> headers, List<InterfaceHttpData> bodylist) throws Exception {
         // XXX /formpostmultipart
         // Start the connection attempt.
         ChannelFuture future = bootstrap.connect(new InetSocketAddress(host, port));

@@ -126,14 +126,7 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
     protected FullHttpRequest newHandshakeRequest() {
         // Get path
         URI wsURL = uri();
-        String path = wsURL.getPath();
-        if (wsURL.getQuery() != null && !wsURL.getQuery().isEmpty()) {
-            path = wsURL.getPath() + '?' + wsURL.getQuery();
-        }
-
-        if (path == null || path.isEmpty()) {
-            path = "/";
-        }
+        String path = rawPath(wsURL);
 
         // Get 16 bit nonce and base 64 encode it
         byte[] nonce = WebSocketUtil.randomBytes(16);
@@ -149,6 +142,9 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
                     key, expectedChallengeResponseString);
         }
 
+        int wsPort = websocketPort(wsURL);
+        String host = wsURL.getHost();
+
         // Format request
         FullHttpRequest request = new DefaultFullHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, path);
         HttpHeaders headers = request.headers();
@@ -156,16 +152,8 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
         headers.add(HttpHeaderNames.UPGRADE, HttpHeaderValues.WEBSOCKET)
                .add(HttpHeaderNames.CONNECTION, HttpHeaderValues.UPGRADE)
                .add(HttpHeaderNames.SEC_WEBSOCKET_KEY, key)
-               .add(HttpHeaderNames.HOST, wsURL.getHost());
-
-        int wsPort = wsURL.getPort();
-        String originValue = "http://" + wsURL.getHost();
-        if (wsPort != 80 && wsPort != 443) {
-            // if the port is not standard (80/443) its needed to add the port to the header.
-            // See http://tools.ietf.org/html/rfc6454#section-6.2
-            originValue = originValue + ':' + wsPort;
-        }
-        headers.add(HttpHeaderNames.SEC_WEBSOCKET_ORIGIN, originValue);
+               .add(HttpHeaderNames.HOST, host)
+               .add(HttpHeaderNames.SEC_WEBSOCKET_ORIGIN, websocketOriginValue(host, wsPort));
 
         String expectedSubprotocol = expectedSubprotocol();
         if (expectedSubprotocol != null && !expectedSubprotocol.isEmpty()) {
@@ -207,13 +195,13 @@ public class WebSocketClientHandshaker08 extends WebSocketClientHandshaker {
         }
 
         CharSequence upgrade = headers.get(HttpHeaderNames.UPGRADE);
-        if (!HttpHeaderValues.WEBSOCKET.equalsIgnoreCase(upgrade)) {
+        if (!HttpHeaderValues.WEBSOCKET.contentEqualsIgnoreCase(upgrade)) {
             throw new WebSocketHandshakeException("Invalid handshake response upgrade: " + upgrade);
         }
 
-        CharSequence connection = headers.get(HttpHeaderNames.CONNECTION);
-        if (!HttpHeaderValues.UPGRADE.equalsIgnoreCase(connection)) {
-            throw new WebSocketHandshakeException("Invalid handshake response connection: " + connection);
+        if (!headers.containsValue(HttpHeaderNames.CONNECTION, HttpHeaderValues.UPGRADE, true)) {
+            throw new WebSocketHandshakeException("Invalid handshake response connection: "
+                    + headers.get(HttpHeaderNames.CONNECTION));
         }
 
         CharSequence accept = headers.get(HttpHeaderNames.SEC_WEBSOCKET_ACCEPT);

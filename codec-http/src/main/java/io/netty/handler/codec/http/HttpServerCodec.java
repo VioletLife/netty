@@ -15,9 +15,8 @@
  */
 package io.netty.handler.codec.http;
 
-import io.netty.channel.ChannelHandlerAppender;
 import io.netty.channel.ChannelHandlerContext;
-
+import io.netty.channel.CombinedChannelDuplexHandler;
 
 /**
  * A combination of {@link HttpRequestDecoder} and {@link HttpResponseEncoder}
@@ -25,8 +24,8 @@ import io.netty.channel.ChannelHandlerContext;
  *
  * @see HttpClientCodec
  */
-public final class HttpServerCodec extends ChannelHandlerAppender implements
-        HttpServerUpgradeHandler.SourceCodec {
+public final class HttpServerCodec extends CombinedChannelDuplexHandler<HttpRequestDecoder, HttpResponseEncoder>
+        implements HttpServerUpgradeHandler.SourceCodec {
 
     /**
      * Creates a new instance with the default decoder options
@@ -53,26 +52,21 @@ public final class HttpServerCodec extends ChannelHandlerAppender implements
     }
 
     /**
+     * Creates a new instance with the specified decoder options.
+     */
+    public HttpServerCodec(int maxInitialLineLength, int maxHeaderSize, int maxChunkSize, boolean validateHeaders,
+                           int initialBufferSize) {
+        super(
+          new HttpRequestDecoder(maxInitialLineLength, maxHeaderSize, maxChunkSize, validateHeaders, initialBufferSize),
+          new HttpResponseEncoder());
+    }
+
+    /**
      * Upgrades to another protocol from HTTP. Removes the {@link HttpRequestDecoder} and
      * {@link HttpResponseEncoder} from the pipeline.
      */
     @Override
     public void upgradeFrom(ChannelHandlerContext ctx) {
-        ctx.pipeline().remove(HttpRequestDecoder.class);
-        ctx.pipeline().remove(HttpResponseEncoder.class);
-    }
-
-    /**
-     * Returns the encoder of this codec.
-     */
-    public HttpResponseEncoder encoder() {
-        return handlerAt(1);
-    }
-
-    /**
-     * Returns the decoder of this codec.
-     */
-    public HttpRequestDecoder decoder() {
-        return handlerAt(0);
+        ctx.pipeline().remove(this);
     }
 }

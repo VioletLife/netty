@@ -20,6 +20,7 @@ import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
+import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.socket.DefaultServerSocketChannelConfig;
 import io.netty.channel.socket.ServerSocketChannel;
 
@@ -121,6 +122,7 @@ public class DefaultOioServerSocketChannelConfig extends DefaultServerSocketChan
     }
 
     @Override
+    @Deprecated
     public OioServerSocketChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead) {
         super.setMaxMessagesPerRead(maxMessagesPerRead);
         return this;
@@ -153,7 +155,7 @@ public class DefaultOioServerSocketChannelConfig extends DefaultServerSocketChan
     @Override
     protected void autoReadCleared() {
         if (channel instanceof OioServerSocketChannel) {
-            ((OioServerSocketChannel) channel).setReadPending(false);
+            ((OioServerSocketChannel) channel).clearReadPending0();
         }
     }
 
@@ -172,6 +174,12 @@ public class DefaultOioServerSocketChannelConfig extends DefaultServerSocketChan
     @Override
     public OioServerSocketChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark) {
         super.setWriteBufferLowWaterMark(writeBufferLowWaterMark);
+        return this;
+    }
+
+    @Override
+    public OioServerSocketChannelConfig setWriteBufferWaterMark(WriteBufferWaterMark writeBufferWaterMark) {
+        super.setWriteBufferWaterMark(writeBufferWaterMark);
         return this;
     }
 

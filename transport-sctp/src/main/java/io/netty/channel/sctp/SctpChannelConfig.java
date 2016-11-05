@@ -21,6 +21,7 @@ import io.netty.channel.ChannelConfig;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
+import io.netty.channel.WriteBufferWaterMark;
 
 /**
  * A {@link ChannelConfig} for a {@link SctpChannel}.
@@ -102,6 +103,7 @@ public interface SctpChannelConfig extends ChannelConfig {
     SctpChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
 
     @Override
+    @Deprecated
     SctpChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
 
     @Override
@@ -124,6 +126,9 @@ public interface SctpChannelConfig extends ChannelConfig {
 
     @Override
     SctpChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    @Override
+    SctpChannelConfig setWriteBufferWaterMark(WriteBufferWaterMark writeBufferWaterMark);
 
     @Override
     SctpChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);

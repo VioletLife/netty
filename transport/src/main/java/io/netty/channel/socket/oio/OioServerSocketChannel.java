@@ -44,7 +44,7 @@ public class OioServerSocketChannel extends AbstractOioMessageChannel
     private static final InternalLogger logger =
         InternalLoggerFactory.getInstance(OioServerSocketChannel.class);
 
-    private static final ChannelMetadata METADATA = new ChannelMetadata(false);
+    private static final ChannelMetadata METADATA = new ChannelMetadata(false, 1);
 
     private static ServerSocket newServerSocket() {
         try {
@@ -195,8 +195,13 @@ public class OioServerSocketChannel extends AbstractOioMessageChannel
         throw new UnsupportedOperationException();
     }
 
+    @Deprecated
     @Override
     protected void setReadPending(boolean readPending) {
         super.setReadPending(readPending);
+    }
+
+    final void clearReadPending0() {
+        super.clearReadPending();
     }
 }

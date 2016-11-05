@@ -15,14 +15,18 @@
  */
 package io.netty.handler.codec.spdy;
 
-import io.netty.handler.codec.TextHeaders;
+import io.netty.handler.codec.Headers;
 import io.netty.util.AsciiString;
+
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map.Entry;
 
 /**
  * Provides the constants for the standard SPDY HTTP header names and commonly
  * used utility methods that access a {@link SpdyHeadersFrame}.
  */
-public interface SpdyHeaders extends TextHeaders {
+public interface SpdyHeaders extends Headers<CharSequence, CharSequence, SpdyHeaders> {
 
     /**
      * SPDY HTTP header names
@@ -56,105 +60,33 @@ public interface SpdyHeaders extends TextHeaders {
         private HttpNames() { }
     }
 
-    @Override
-    SpdyHeaders add(CharSequence name, CharSequence value);
+    /**
+     * {@link Headers#get(Object)} and convert the result to a {@link String}.
+     * @param name the name of the header to retrieve
+     * @return the first header value if the header is found. {@code null} if there's no such header.
+     */
+    String getAsString(CharSequence name);
 
-    @Override
-    SpdyHeaders add(CharSequence name, Iterable<? extends CharSequence> values);
+    /**
+     * {@link Headers#getAll(Object)} and convert each element of {@link List} to a {@link String}.
+     * @param name the name of the header to retrieve
+     * @return a {@link List} of header values or an empty {@link List} if no values are found.
+     */
+    List<String> getAllAsString(CharSequence name);
 
-    @Override
-    SpdyHeaders add(CharSequence name, CharSequence... values);
+    /**
+     * {@link #iterator()} that converts each {@link Entry}'s key and value to a {@link String}.
+     */
+    Iterator<Entry<String, String>> iteratorAsString();
 
-    @Override
-    SpdyHeaders addObject(CharSequence name, Object value);
-
-    @Override
-    SpdyHeaders addObject(CharSequence name, Iterable<?> values);
-
-    @Override
-    SpdyHeaders addObject(CharSequence name, Object... values);
-
-    @Override
-    SpdyHeaders addBoolean(CharSequence name, boolean value);
-
-    @Override
-    SpdyHeaders addByte(CharSequence name, byte value);
-
-    @Override
-    SpdyHeaders addChar(CharSequence name, char value);
-
-    @Override
-    SpdyHeaders addShort(CharSequence name, short value);
-
-    @Override
-    SpdyHeaders addInt(CharSequence name, int value);
-
-    @Override
-    SpdyHeaders addLong(CharSequence name, long value);
-
-    @Override
-    SpdyHeaders addFloat(CharSequence name, float value);
-
-    @Override
-    SpdyHeaders addDouble(CharSequence name, double value);
-
-    @Override
-    SpdyHeaders addTimeMillis(CharSequence name, long value);
-
-    @Override
-    SpdyHeaders add(TextHeaders headers);
-
-    @Override
-    SpdyHeaders set(CharSequence name, CharSequence value);
-
-    @Override
-    SpdyHeaders set(CharSequence name, Iterable<? extends CharSequence> values);
-
-    @Override
-    SpdyHeaders set(CharSequence name, CharSequence... values);
-
-    @Override
-    SpdyHeaders setBoolean(CharSequence name, boolean value);
-
-    @Override
-    SpdyHeaders setByte(CharSequence name, byte value);
-
-    @Override
-    SpdyHeaders setChar(CharSequence name, char value);
-
-    @Override
-    SpdyHeaders setShort(CharSequence name, short value);
-
-    @Override
-    SpdyHeaders setInt(CharSequence name, int value);
-
-    @Override
-    SpdyHeaders setLong(CharSequence name, long value);
-
-    @Override
-    SpdyHeaders setFloat(CharSequence name, float value);
-
-    @Override
-    SpdyHeaders setDouble(CharSequence name, double value);
-
-    @Override
-    SpdyHeaders setTimeMillis(CharSequence name, long value);
-
-    @Override
-    SpdyHeaders setObject(CharSequence name, Object value);
-
-    @Override
-    SpdyHeaders setObject(CharSequence name, Iterable<?> values);
-
-    @Override
-    SpdyHeaders setObject(CharSequence name, Object... values);
-
-    @Override
-    SpdyHeaders set(TextHeaders headers);
-
-    @Override
-    SpdyHeaders setAll(TextHeaders headers);
-
-    @Override
-    SpdyHeaders clear();
+    /**
+     * Returns {@code true} if a header with the {@code name} and {@code value} exists, {@code false} otherwise.
+     * <p>
+     * If {@code ignoreCase} is {@code true} then a case insensitive compare is done on the value.
+     * @param name the name of the header to find
+     * @param value the value of the header to find
+     * @param ignoreCase {@code true} then a case insensitive compare is run to compare values.
+     * otherwise a case sensitive compare is run to compare values.
+     */
+    boolean contains(CharSequence name, CharSequence value, boolean ignoreCase);
 }

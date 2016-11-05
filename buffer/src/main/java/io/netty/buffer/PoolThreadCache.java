@@ -21,6 +21,7 @@ import io.netty.buffer.PoolArena.SizeClass;
 import io.netty.util.Recycler;
 import io.netty.util.Recycler.Handle;
 import io.netty.util.ThreadDeathWatcher;
+import io.netty.util.internal.MathUtil;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
@@ -76,7 +77,7 @@ final class PoolThreadCache {
         }
         if (freeSweepAllocationThreshold < 1) {
             throw new IllegalArgumentException("freeSweepAllocationThreshold: "
-                    + maxCachedBufferCapacity + " (expected: > 0)");
+                    + freeSweepAllocationThreshold + " (expected: > 0)");
         }
         this.freeSweepAllocationThreshold = freeSweepAllocationThreshold;
         this.heapArena = heapArena;
@@ -90,6 +91,8 @@ final class PoolThreadCache {
             numShiftsNormalDirect = log2(directArena.pageSize);
             normalDirectCaches = createNormalCaches(
                     normalCacheSize, maxCachedBufferCapacity, directArena);
+
+            directArena.numThreadCaches.getAndIncrement();
         } else {
             // No directArea is configured so just null out all caches
             tinySubPageDirectCaches = null;
@@ -107,6 +110,8 @@ final class PoolThreadCache {
             numShiftsNormalHeap = log2(heapArena.pageSize);
             normalHeapCaches = createNormalCaches(
                     normalCacheSize, maxCachedBufferCapacity, heapArena);
+
+            heapArena.numThreadCaches.getAndIncrement();
         } else {
             // No heapArea is configured so just null out all caches
             tinySubPageHeapCaches = null;
@@ -241,6 +246,14 @@ final class PoolThreadCache {
         if (numFreed > 0 && logger.isDebugEnabled()) {
             logger.debug("Freed {} thread-local buffer(s) from thread: {}", numFreed, thread.getName());
         }
+
+        if (directArena != null) {
+            directArena.numThreadCaches.getAndDecrement();
+        }
+
+        if (heapArena != null) {
+            heapArena.numThreadCaches.getAndDecrement();
+        }
     }
 
     private static int free(MemoryRegionCache<?>[] caches) {
@@ -356,23 +369,9 @@ final class PoolThreadCache {
         private int allocations;
 
         MemoryRegionCache(int size, SizeClass sizeClass) {
-            this.size = powerOfTwo(size);
+            this.size = MathUtil.safeFindNextPositivePowerOfTwo(size);
             queue = PlatformDependent.newFixedMpscQueue(this.size);
             this.sizeClass = sizeClass;
-        }
-
-        private static int powerOfTwo(int res) {
-            if (res <= 2) {
-                return 2;
-            }
-            res--;
-            res |= res >> 1;
-            res |= res >> 2;
-            res |= res >> 4;
-            res |= res >> 8;
-            res |= res >> 16;
-            res++;
-            return res;
         }
 
         /**
@@ -386,7 +385,14 @@ final class PoolThreadCache {
          */
         @SuppressWarnings("unchecked")
         public final boolean add(PoolChunk<T> chunk, long handle) {
-            return queue.offer(newEntry(chunk, handle));
+            Entry<T> entry = newEntry(chunk, handle);
+            boolean queued = queue.offer(entry);
+            if (!queued) {
+                // If it was not possible to cache the chunk, immediately recycle the entry
+                entry.recycle();
+            }
+
+            return queued;
         }
 
         /**
@@ -398,6 +404,7 @@ final class PoolThreadCache {
                 return false;
             }
             initBuf(entry.chunk, entry.handle, buf, reqCapacity);
+            entry.recycle();
 
             // allocations is not thread-safe which is fine as this is only called from the same thread all time.
             ++ allocations;
@@ -450,18 +457,18 @@ final class PoolThreadCache {
         }
 
         static final class Entry<T> {
-            final Handle recyclerHandle;
+            final Handle<Entry<?>> recyclerHandle;
             PoolChunk<T> chunk;
             long handle = -1;
 
-            Entry(Handle recyclerHandle) {
+            Entry(Handle<Entry<?>> recyclerHandle) {
                 this.recyclerHandle = recyclerHandle;
             }
 
             void recycle() {
                 chunk = null;
                 handle = -1;
-                RECYCLER.recycle(this, recyclerHandle);
+                recyclerHandle.recycle(this);
             }
         }
 
@@ -475,8 +482,9 @@ final class PoolThreadCache {
 
         @SuppressWarnings("rawtypes")
         private static final Recycler<Entry> RECYCLER = new Recycler<Entry>() {
+            @SuppressWarnings("unchecked")
             @Override
-            protected Entry newObject(Handle handle) {
+            protected Entry newObject(Handle<Entry> handle) {
                 return new Entry(handle);
             }
         };

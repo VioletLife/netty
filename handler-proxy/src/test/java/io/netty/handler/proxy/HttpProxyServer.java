@@ -29,13 +29,10 @@ import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObjectAggregator;
-import io.netty.handler.codec.http.HttpRequestDecoder;
-import io.netty.handler.codec.http.HttpResponseEncoder;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.util.CharsetUtil;
-import io.netty.util.internal.StringUtil;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -83,13 +80,13 @@ final class HttpProxyServer extends ProxyServer {
         }
 
         ctx.pipeline().remove(HttpObjectAggregator.class);
-        ctx.pipeline().remove(HttpRequestDecoder.class);
+        ctx.pipeline().get(HttpServerCodec.class).removeInboundHandler();
 
         boolean authzSuccess = false;
         if (username != null) {
             CharSequence authz = req.headers().get(HttpHeaderNames.PROXY_AUTHORIZATION);
             if (authz != null) {
-                String[] authzParts = StringUtil.split(authz.toString(), ' ', 2);
+                String[] authzParts = authz.toString().split(" ", 2);
                 ByteBuf authzBuf64 = Unpooled.copiedBuffer(authzParts[1], CharsetUtil.US_ASCII);
                 ByteBuf authzBuf = Base64.decode(authzBuf64);
 
@@ -128,7 +125,7 @@ final class HttpProxyServer extends ProxyServer {
             }
 
             ctx.write(res);
-            ctx.pipeline().remove(HttpResponseEncoder.class);
+            ctx.pipeline().get(HttpServerCodec.class).removeOutboundHandler();
             return true;
         }
 
@@ -158,7 +155,7 @@ final class HttpProxyServer extends ProxyServer {
             }
 
             ctx.write(res);
-            ctx.pipeline().remove(HttpResponseEncoder.class);
+            ctx.pipeline().get(HttpServerCodec.class).removeOutboundHandler();
 
             if (sendGreeting) {
                 ctx.write(Unpooled.copiedBuffer("0\n", CharsetUtil.US_ASCII));

@@ -16,7 +16,6 @@
 package io.netty.util;
 
 import io.netty.util.internal.PlatformDependent;
-import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -118,9 +117,14 @@ public final class NetUtil {
     private static final int IPV4_SEPARATORS = 3;
 
     /**
-     * {@code true} if ipv4 should be used on a system that supports ipv4 and ipv6.
+     * {@code true} if IPv4 should be used even if the system supports both IPv4 and IPv6.
      */
     private static final boolean IPV4_PREFERRED = Boolean.getBoolean("java.net.preferIPv4Stack");
+
+    /**
+     * {@code true} if an IPv6 address should be preferred when a host has both an IPv4 address and an IPv6 address.
+     */
+    private static final boolean IPV6_ADDRESSES_PREFERRED = Boolean.getBoolean("java.net.preferIPv6Addresses");
 
     /**
      * The logger being used by this class
@@ -128,13 +132,16 @@ public final class NetUtil {
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(NetUtil.class);
 
     static {
+        logger.debug("-Djava.net.preferIPv4Stack: {}", IPV4_PREFERRED);
+        logger.debug("-Djava.net.preferIPv6Addresses: {}", IPV6_ADDRESSES_PREFERRED);
+
         byte[] LOCALHOST4_BYTES = {127, 0, 0, 1};
         byte[] LOCALHOST6_BYTES = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
 
         // Create IPv4 loopback address.
         Inet4Address localhost4 = null;
         try {
-            localhost4 = (Inet4Address) InetAddress.getByAddress(LOCALHOST4_BYTES);
+            localhost4 = (Inet4Address) InetAddress.getByAddress("localhost", LOCALHOST4_BYTES);
         } catch (Exception e) {
             // We should not get here as long as the length of the address is correct.
             PlatformDependent.throwException(e);
@@ -144,7 +151,7 @@ public final class NetUtil {
         // Create IPv6 loopback address.
         Inet6Address localhost6 = null;
         try {
-            localhost6 = (Inet6Address) InetAddress.getByAddress(LOCALHOST6_BYTES);
+            localhost6 = (Inet6Address) InetAddress.getByAddress("localhost", LOCALHOST6_BYTES);
         } catch (Exception e) {
             // We should not get here as long as the length of the address is correct.
             PlatformDependent.throwException(e);
@@ -245,28 +252,31 @@ public final class NetUtil {
                 // - Linux and Mac OS X: 128
                 int somaxconn = PlatformDependent.isWindows() ? 200 : 128;
                 File file = new File("/proc/sys/net/core/somaxconn");
-                if (file.exists()) {
-                    BufferedReader in = null;
-                    try {
+                BufferedReader in = null;
+                try {
+                    // file.exists() may throw a SecurityException if a SecurityManager is used, so execute it in the
+                    // try / catch block.
+                    // See https://github.com/netty/netty/issues/4936
+                    if (file.exists()) {
                         in = new BufferedReader(new FileReader(file));
                         somaxconn = Integer.parseInt(in.readLine());
                         if (logger.isDebugEnabled()) {
                             logger.debug("{}: {}", file, somaxconn);
                         }
-                    } catch (Exception e) {
-                        logger.debug("Failed to get SOMAXCONN from: {}", file, e);
-                    } finally {
-                        if (in != null) {
-                            try {
-                                in.close();
-                            } catch (Exception e) {
-                                // Ignored.
-                            }
+                    } else {
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("{}: {} (non-existent)", file, somaxconn);
                         }
                     }
-                } else {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("{}: {} (non-existent)", file, somaxconn);
+                } catch (Exception e) {
+                    logger.debug("Failed to get SOMAXCONN from: {}", file, e);
+                } finally {
+                    if (in != null) {
+                        try {
+                            in.close();
+                        } catch (Exception e) {
+                            // Ignored.
+                        }
                     }
                 }
                 return somaxconn;
@@ -275,10 +285,25 @@ public final class NetUtil {
     }
 
     /**
-     * Returns {@code true} if ipv4 should be prefered on a system that supports ipv4 and ipv6.
+     * Returns {@code true} if IPv4 should be used even if the system supports both IPv4 and IPv6. Setting this
+     * property to {@code true} will disable IPv6 support. The default value of this property is {@code false}.
+     *
+     * @see <a href="https://docs.oracle.com/javase/8/docs/api/java/net/doc-files/net-properties.html">Java SE
+     *      networking properties</a>
      */
     public static boolean isIpV4StackPreferred() {
         return IPV4_PREFERRED;
+    }
+
+    /**
+     * Returns {@code true} if an IPv6 address should be preferred when a host has both an IPv4 address and an IPv6
+     * address. The default value of this property is {@code false}.
+     *
+     * @see <a href="https://docs.oracle.com/javase/8/docs/api/java/net/doc-files/net-properties.html">Java SE
+     *      networking properties</a>
+     */
+    public static boolean isIpV6AddressesPreferred() {
+        return IPV6_ADDRESSES_PREFERRED;
     }
 
     /**
@@ -480,35 +505,33 @@ public final class NetUtil {
      * @throws IllegalArgumentException
      *         if {@code length} is not {@code 4} nor {@code 16}
      */
+    public static String bytesToIpAddress(byte[] bytes) {
+        return bytesToIpAddress(bytes, 0, bytes.length);
+    }
+
+    /**
+     * Converts 4-byte or 16-byte data into an IPv4 or IPv6 string respectively.
+     *
+     * @throws IllegalArgumentException
+     *         if {@code length} is not {@code 4} nor {@code 16}
+     */
     public static String bytesToIpAddress(byte[] bytes, int offset, int length) {
-        if (length == 4) {
-            StringBuilder buf = new StringBuilder(15);
-
-            buf.append(bytes[offset ++] >> 24 & 0xff);
-            buf.append('.');
-            buf.append(bytes[offset ++] >> 16 & 0xff);
-            buf.append('.');
-            buf.append(bytes[offset ++] >> 8 & 0xff);
-            buf.append('.');
-            buf.append(bytes[offset] & 0xff);
-
-            return buf.toString();
-        }
-
-        if (length == 16) {
-            final StringBuilder sb = new StringBuilder(39);
-            final int endOffset = offset + 14;
-
-            for (; offset < endOffset; offset += 2) {
-                StringUtil.toHexString(sb, bytes, offset, 2);
-                sb.append(':');
+        switch (length) {
+            case 4: {
+                return new StringBuilder(15)
+                        .append(bytes[offset] & 0xff)
+                        .append('.')
+                        .append(bytes[offset + 1] & 0xff)
+                        .append('.')
+                        .append(bytes[offset + 2] & 0xff)
+                        .append('.')
+                        .append(bytes[offset + 3] & 0xff).toString();
             }
-            StringUtil.toHexString(sb, bytes, offset, 2);
-
-            return sb.toString();
+            case 16:
+                return toAddressString(bytes, offset, false);
+            default:
+                throw new IllegalArgumentException("length: " + length + " (expected: 4 or 16)");
         }
-
-        throw new IllegalArgumentException("length: " + length + " (expected: 4 or 16)");
     }
 
     public static boolean isValidIpV6Address(String ipAddress) {
@@ -955,13 +978,17 @@ public final class NetUtil {
             return ip.getHostAddress();
         }
         if (!(ip instanceof Inet6Address)) {
-            throw new IllegalArgumentException("Unhandled type: " + ip.getClass());
+            throw new IllegalArgumentException("Unhandled type: " + ip);
         }
 
-        final byte[] bytes = ip.getAddress();
+        return toAddressString(ip.getAddress(), 0, ipv4Mapped);
+    }
+
+    private static String toAddressString(byte[] bytes, int offset, boolean ipv4Mapped) {
         final int[] words = new int[IPV6_WORD_COUNT];
         int i;
-        for (i = 0; i < words.length; ++i) {
+        final int end = offset + words.length;
+        for (i = offset; i < end; ++i) {
             words[i] = ((bytes[i << 1] & 0xff) << 8) | (bytes[(i << 1) + 1] & 0xff);
         }
 

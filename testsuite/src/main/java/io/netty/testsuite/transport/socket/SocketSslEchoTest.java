@@ -26,15 +26,13 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.ssl.JdkSslClientContext;
-import io.netty.handler.ssl.JdkSslServerContext;
 import io.netty.handler.ssl.OpenSsl;
-import io.netty.handler.ssl.OpenSslClientContext;
 import io.netty.handler.ssl.OpenSslContext;
-import io.netty.handler.ssl.OpenSslServerContext;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.ssl.SslHandshakeCompletionEvent;
+import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.testsuite.util.TestUtils;
@@ -47,7 +45,6 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
-import javax.net.ssl.SSLEngine;
 import java.io.File;
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -59,6 +56,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.SSLEngine;
 
 import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.is;
@@ -125,15 +123,17 @@ public class SocketSslEchoTest extends AbstractSocketTest {
             "autoRead = {5}, useChunkedWriteHandler = {6}, useCompositeByteBuf = {7}")
     public static Collection<Object[]> data() throws Exception {
         List<SslContext> serverContexts = new ArrayList<SslContext>();
-        serverContexts.add(new JdkSslServerContext(CERT_FILE, KEY_FILE));
+        serverContexts.add(SslContextBuilder.forServer(CERT_FILE, KEY_FILE).sslProvider(SslProvider.JDK).build());
 
         List<SslContext> clientContexts = new ArrayList<SslContext>();
-        clientContexts.add(new JdkSslClientContext(CERT_FILE));
+        clientContexts.add(SslContextBuilder.forClient().sslProvider(SslProvider.JDK).trustManager(CERT_FILE).build());
 
         boolean hasOpenSsl = OpenSsl.isAvailable();
         if (hasOpenSsl) {
-            serverContexts.add(new OpenSslServerContext(CERT_FILE, KEY_FILE));
-            clientContexts.add(new OpenSslClientContext(CERT_FILE));
+            serverContexts.add(SslContextBuilder.forServer(CERT_FILE, KEY_FILE)
+                                                .sslProvider(SslProvider.OPENSSL).build());
+            clientContexts.add(SslContextBuilder.forClient().sslProvider(SslProvider.OPENSSL)
+                                                .trustManager(CERT_FILE).build());
         } else {
             logger.warn("OpenSSL is unavailable and thus will not be tested.", OpenSsl.unavailabilityCause());
         }
@@ -148,11 +148,19 @@ public class SocketSslEchoTest extends AbstractSocketTest {
                         continue;
                     }
 
-                    Renegotiation r;
-                    if (rt == RenegotiationType.NONE) {
-                        r = Renegotiation.NONE;
-                    } else {
-                        r = new Renegotiation(rt, "SSL_RSA_WITH_RC4_128_SHA");
+                    final Renegotiation r;
+                    switch (rt) {
+                        case NONE:
+                            r = Renegotiation.NONE;
+                            break;
+                        case SERVER_INITIATED:
+                            r = new Renegotiation(rt, sc.cipherSuites().get(sc.cipherSuites().size() - 1));
+                            break;
+                        case CLIENT_INITIATED:
+                            r = new Renegotiation(rt, cc.cipherSuites().get(cc.cipherSuites().size() - 1));
+                            break;
+                        default:
+                            throw new Error();
                     }
 
                     for (int i = 0; i < 32; i++) {
@@ -287,7 +295,7 @@ public class SocketSslEchoTest extends AbstractSocketTest {
             int length = Math.min(random.nextInt(1024 * 64), data.length - clientSendCounterVal);
             ByteBuf buf = Unpooled.wrappedBuffer(data, clientSendCounterVal, length);
             if (useCompositeByteBuf) {
-                buf = Unpooled.compositeBuffer().addComponent(buf).writerIndex(buf.writerIndex());
+                buf = Unpooled.compositeBuffer().addComponent(true, buf);
             }
 
             ChannelFuture future = clientChannel.writeAndFlush(buf);
@@ -520,7 +528,7 @@ public class SocketSslEchoTest extends AbstractSocketTest {
 
             ByteBuf buf = Unpooled.wrappedBuffer(actual);
             if (useCompositeByteBuf) {
-                buf = Unpooled.compositeBuffer().addComponent(buf).writerIndex(buf.writerIndex());
+                buf = Unpooled.compositeBuffer().addComponent(true, buf);
             }
             ctx.write(buf);
 

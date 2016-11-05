@@ -26,14 +26,18 @@ import io.netty.util.CharsetUtil;
 import java.util.ArrayList;
 import java.util.List;
 
-import static io.netty.handler.codec.mqtt.MqttCodecUtil.*;
+import static io.netty.handler.codec.mqtt.MqttCodecUtil.isValidClientId;
+import static io.netty.handler.codec.mqtt.MqttCodecUtil.isValidMessageId;
+import static io.netty.handler.codec.mqtt.MqttCodecUtil.isValidPublishTopicName;
+import static io.netty.handler.codec.mqtt.MqttCodecUtil.resetUnusedFields;
+import static io.netty.handler.codec.mqtt.MqttCodecUtil.validateFixedHeader;
 
 /**
  * Decodes Mqtt messages from bytes, following
  * <a href="http://public.dhe.ibm.com/software/dw/webservices/ws-mqtt/mqtt-v3r1.html">
  *     the MQTT protocl specification v3.1</a>
  */
-public class MqttDecoder extends ReplayingDecoder<DecoderState> {
+public final class MqttDecoder extends ReplayingDecoder<DecoderState> {
 
     private static final int DEFAULT_MAX_BYTES_IN_MESSAGE = 8092;
 
@@ -221,6 +225,15 @@ public class MqttDecoder extends ReplayingDecoder<DecoderState> {
         final int willQos = (b1 & 0x18) >> 3;
         final boolean willFlag = (b1 & 0x04) == 0x04;
         final boolean cleanSession = (b1 & 0x02) == 0x02;
+        if (mqttVersion == MqttVersion.MQTT_3_1_1) {
+            final boolean zeroReservedFlag = (b1 & 0x01) == 0x0;
+            if (!zeroReservedFlag) {
+                // MQTT v3.1.1: The Server MUST validate that the reserved flag in the CONNECT Control Packet is
+                // set to zero and disconnect the Client if it is not zero.
+                // See http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html#_Toc385349230
+                throw new DecoderException("non-zero reserved flag");
+            }
+        }
 
         final MqttConnectVariableHeader mqttConnectVariableHeader = new MqttConnectVariableHeader(
                 mqttVersion.protocolName(),
@@ -236,11 +249,11 @@ public class MqttDecoder extends ReplayingDecoder<DecoderState> {
     }
 
     private static Result<MqttConnAckVariableHeader> decodeConnAckVariableHeader(ByteBuf buffer) {
-        buffer.readUnsignedByte(); // reserved byte
+        final boolean sessionPresent = (buffer.readUnsignedByte() & 0x01) == 0x01;
         byte returnCode = buffer.readByte();
         final int numberOfBytesConsumed = 2;
         final MqttConnAckVariableHeader mqttConnAckVariableHeader =
-                new MqttConnAckVariableHeader(MqttConnectReturnCode.valueOf(returnCode));
+                new MqttConnAckVariableHeader(MqttConnectReturnCode.valueOf(returnCode), sessionPresent);
         return new Result<MqttConnAckVariableHeader>(mqttConnAckVariableHeader, numberOfBytesConsumed);
     }
 
@@ -400,7 +413,7 @@ public class MqttDecoder extends ReplayingDecoder<DecoderState> {
     }
 
     private static Result<ByteBuf> decodePublishPayload(ByteBuf buffer, int bytesRemainingInVariablePart) {
-        ByteBuf b = buffer.readSlice(bytesRemainingInVariablePart).retain();
+        ByteBuf b = buffer.readRetainedSlice(bytesRemainingInVariablePart);
         return new Result<ByteBuf>(b, bytesRemainingInVariablePart);
     }
 
@@ -428,9 +441,10 @@ public class MqttDecoder extends ReplayingDecoder<DecoderState> {
             numberOfBytesConsumed += size;
             return new Result<String>(null, numberOfBytesConsumed);
         }
-        ByteBuf buf = buffer.readBytes(size);
+        String s = buffer.toString(buffer.readerIndex(), size, CharsetUtil.UTF_8);
+        buffer.skipBytes(size);
         numberOfBytesConsumed += size;
-        return new Result<String>(buf.toString(CharsetUtil.UTF_8), numberOfBytesConsumed);
+        return new Result<String>(s, numberOfBytesConsumed);
     }
 
     private static Result<Integer> decodeMsbLsb(ByteBuf buffer) {

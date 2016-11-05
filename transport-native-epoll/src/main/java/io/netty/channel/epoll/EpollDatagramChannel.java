@@ -16,6 +16,7 @@
 package io.netty.channel.epoll;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.CompositeByteBuf;
 import io.netty.channel.AddressedEnvelope;
 import io.netty.channel.ChannelFuture;
@@ -25,11 +26,12 @@ import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultAddressedEnvelope;
-import io.netty.channel.RecvByteBufAllocator;
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.DatagramChannelConfig;
 import io.netty.channel.socket.DatagramPacket;
+import io.netty.channel.unix.DatagramSocketAddress;
 import io.netty.channel.unix.FileDescriptor;
+import io.netty.channel.unix.Socket;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
 
@@ -43,6 +45,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.NotYetConnectedException;
 import java.util.ArrayList;
 import java.util.List;
+
+import static io.netty.channel.unix.Socket.newSocketDgram;
 
 /**
  * {@link DatagramChannel} implementation that uses linux EPOLL Edge-Triggered Mode for
@@ -63,20 +67,24 @@ public final class EpollDatagramChannel extends AbstractEpollChannel implements 
     private final EpollDatagramChannelConfig config;
 
     public EpollDatagramChannel() {
-        super(Native.socketDgramFd(), Native.EPOLLIN);
+        super(newSocketDgram(), Native.EPOLLIN);
         config = new EpollDatagramChannelConfig(this);
     }
 
     /**
-     * Create a new {@link EpollDatagramChannel} from the given {@link FileDescriptor}.
+     * @deprecated Use {@link #EpollDatagramChannel(Socket)}.
      */
+    @Deprecated
     public EpollDatagramChannel(FileDescriptor fd) {
-        super(null, fd, Native.EPOLLIN, true);
-        config = new EpollDatagramChannelConfig(this);
+        this(new Socket(fd.intValue()));
+    }
 
+    public EpollDatagramChannel(Socket fd) {
+        super(null, fd, Native.EPOLLIN, true);
         // As we create an EpollDatagramChannel from a FileDescriptor we should try to obtain the remote and local
         // address from it. This is needed as the FileDescriptor may be bound already.
-        local = Native.localAddress(fd.intValue());
+        local = fd.localAddress();
+        config = new EpollDatagramChannelConfig(this);
     }
 
     @Override
@@ -275,9 +283,8 @@ public final class EpollDatagramChannel extends AbstractEpollChannel implements 
     protected void doBind(SocketAddress localAddress) throws Exception {
         InetSocketAddress addr = (InetSocketAddress) localAddress;
         checkResolvable(addr);
-        int fd = fd().intValue();
-        Native.bind(fd, addr);
-        local = Native.localAddress(fd);
+        fd().bind(addr);
+        local = fd().localAddress();
         active = true;
     }
 
@@ -371,18 +378,19 @@ public final class EpollDatagramChannel extends AbstractEpollChannel implements 
         final int writtenBytes;
         if (data.hasMemoryAddress()) {
             long memoryAddress = data.memoryAddress();
-            writtenBytes = Native.sendToAddress(fd().intValue(), memoryAddress, data.readerIndex(), data.writerIndex(),
+            writtenBytes = fd().sendToAddress(memoryAddress, data.readerIndex(), data.writerIndex(),
                     remoteAddress.getAddress(), remoteAddress.getPort());
         } else if (data instanceof CompositeByteBuf) {
-            IovArray array = IovArrayThreadLocal.get((CompositeByteBuf) data);
+            IovArray array = ((EpollEventLoop) eventLoop()).cleanArray();
+            array.add(data);
             int cnt = array.count();
             assert cnt != 0;
 
-            writtenBytes = Native.sendToAddresses(fd().intValue(), array.memoryAddress(0),
+            writtenBytes = fd().sendToAddresses(array.memoryAddress(0),
                     cnt, remoteAddress.getAddress(), remoteAddress.getPort());
         } else  {
             ByteBuffer nioData = data.internalNioBuffer(data.readerIndex(), data.readableBytes());
-            writtenBytes = Native.sendTo(fd().intValue(), nioData, nioData.position(), nioData.limit(),
+            writtenBytes = fd().sendTo(nioData, nioData.position(), nioData.limit(),
                     remoteAddress.getAddress(), remoteAddress.getPort());
         }
 
@@ -473,7 +481,6 @@ public final class EpollDatagramChannel extends AbstractEpollChannel implements 
     }
 
     final class EpollDatagramChannelUnsafe extends AbstractEpollUnsafe {
-
         private final List<Object> readBuf = new ArrayList<Object>();
 
         @Override
@@ -490,8 +497,11 @@ public final class EpollDatagramChannel extends AbstractEpollChannel implements 
 
                     checkResolvable(remoteAddress);
                     EpollDatagramChannel.this.remote = remoteAddress;
-                    EpollDatagramChannel.this.local = Native.localAddress(fd().intValue());
+                    EpollDatagramChannel.this.local = fd().localAddress();
                     success = true;
+
+                    // First notify the promise before notifying the handler.
+                    channelPromise.trySuccess();
 
                     // Regardless if the connection attempt was cancelled, channelActive() event should be triggered,
                     // because what happened is what happened.
@@ -502,119 +512,83 @@ public final class EpollDatagramChannel extends AbstractEpollChannel implements 
                     if (!success) {
                         doClose();
                     } else {
-                        channelPromise.setSuccess();
                         connected = true;
                     }
                 }
             } catch (Throwable cause) {
-                channelPromise.setFailure(cause);
+                channelPromise.tryFailure(cause);
             }
         }
 
         @Override
         void epollInReady() {
             assert eventLoop().inEventLoop();
-            DatagramChannelConfig config = config();
-    boolean edgeTriggered = isFlagSet(Native.EPOLLET);
-
-            if (!readPending && !edgeTriggered && !config.isAutoRead()) {
-                // ChannelConfig.setAutoRead(false) was called in the meantime
+            if (fd().isInputShutdown()) {
                 clearEpollIn0();
                 return;
             }
-
-            RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+            DatagramChannelConfig config = config();
+            final EpollRecvByteAllocatorHandle allocHandle = recvBufAllocHandle();
+            allocHandle.edgeTriggered(isFlagSet(Native.EPOLLET));
 
             final ChannelPipeline pipeline = pipeline();
+            final ByteBufAllocator allocator = config.getAllocator();
+            allocHandle.reset(config);
+            epollInBefore();
+
             Throwable exception = null;
             try {
-                // if edgeTriggered is used we need to read all messages as we are not notified again otherwise.
-                final int maxMessagesPerRead = edgeTriggered
-                        ? Integer.MAX_VALUE : config.getMaxMessagesPerRead();
-                int messages = 0;
-                do {
-                    ByteBuf data = null;
-                    try {
-                        data = allocHandle.allocate(config.getAllocator());
-                        int writerIndex = data.writerIndex();
-                        DatagramSocketAddress remoteAddress;
+                ByteBuf data = null;
+                try {
+                    do {
+                        data = allocHandle.allocate(allocator);
+                        allocHandle.attemptedBytesRead(data.writableBytes());
+                        final DatagramSocketAddress remoteAddress;
                         if (data.hasMemoryAddress()) {
                             // has a memory address so use optimized call
-                            remoteAddress = Native.recvFromAddress(
-                                    fd().intValue(), data.memoryAddress(), writerIndex, data.capacity());
+                            remoteAddress = fd().recvFromAddress(data.memoryAddress(), data.writerIndex(),
+                                                                 data.capacity());
                         } else {
-                            ByteBuffer nioData = data.internalNioBuffer(writerIndex, data.writableBytes());
-                            remoteAddress = Native.recvFrom(
-                                    fd().intValue(), nioData, nioData.position(), nioData.limit());
+                            ByteBuffer nioData = data.internalNioBuffer(data.writerIndex(), data.writableBytes());
+                            remoteAddress = fd().recvFrom(nioData, nioData.position(), nioData.limit());
                         }
 
                         if (remoteAddress == null) {
+                            allocHandle.lastBytesRead(-1);
+                            data.release();
+                            data = null;
                             break;
                         }
 
-                        int readBytes = remoteAddress.receivedAmount;
-                        data.writerIndex(data.writerIndex() + readBytes);
-                        allocHandle.record(readBytes);
-                        readPending = false;
+                        allocHandle.incMessagesRead(1);
+                        allocHandle.lastBytesRead(remoteAddress.receivedAmount());
+                        data.writerIndex(data.writerIndex() + allocHandle.lastBytesRead());
 
                         readBuf.add(new DatagramPacket(data, (InetSocketAddress) localAddress(), remoteAddress));
                         data = null;
-                    } catch (Throwable t) {
-                        // We do not break from the loop here and remember the last exception,
-                        // because we need to consume everything from the socket used with epoll ET.
-                        exception = t;
-                    } finally {
-                        if (data != null) {
-                            data.release();
-                        }
-                        if (!edgeTriggered && !config.isAutoRead()) {
-                            // This is not using EPOLLET so we can stop reading
-                            // ASAP as we will get notified again later with
-                            // pending data
-                            break;
-                        }
+                    } while (allocHandle.continueReading());
+                } catch (Throwable t) {
+                    if (data != null) {
+                        data.release();
                     }
-                } while (++ messages < maxMessagesPerRead);
+                    exception = t;
+                }
 
                 int size = readBuf.size();
                 for (int i = 0; i < size; i ++) {
+                    readPending = false;
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
-
                 readBuf.clear();
+                allocHandle.readComplete();
                 pipeline.fireChannelReadComplete();
 
                 if (exception != null) {
                     pipeline.fireExceptionCaught(exception);
                 }
             } finally {
-                // Check if there is a readPending which was not processed yet.
-                // This could be for two reasons:
-                // * The user called Channel.read() or ChannelHandlerContext.read() in channelRead(...) method
-                // * The user called Channel.read() or ChannelHandlerContext.read() in channelReadComplete(...) method
-                //
-                // See https://github.com/netty/netty/issues/2254
-                if (!readPending && !config.isAutoRead()) {
-                    clearEpollIn();
-                }
+                epollInFinally(config);
             }
-        }
-    }
-
-    /**
-     * Act as special {@link InetSocketAddress} to be able to easily pass all needed data from JNI without the need
-     * to create more objects then needed.
-     */
-    static final class DatagramSocketAddress extends InetSocketAddress {
-
-        private static final long serialVersionUID = 1348596211215015739L;
-
-        // holds the amount of received bytes
-        final int receivedAmount;
-
-        DatagramSocketAddress(String addr, int port, int receivedAmount) {
-            super(addr, port);
-            this.receivedAmount = receivedAmount;
         }
     }
 }

@@ -20,6 +20,7 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.DefaultEventLoopGroup;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.local.LocalAddress;
 import io.netty.channel.local.LocalChannel;
@@ -151,6 +152,45 @@ public class FixedChannelPoolTest {
         group.shutdownGracefully();
     }
 
+    /**
+     * Tests that the acquiredChannelCount is not added up several times for the same channel acquire request.
+     * @throws Exception
+     */
+    @Test
+    public void testAcquireNewConnectionWhen() throws Exception {
+        EventLoopGroup group = new DefaultEventLoopGroup();
+        LocalAddress addr = new LocalAddress(LOCAL_ADDR_ID);
+        Bootstrap cb = new Bootstrap();
+        cb.remoteAddress(addr);
+        cb.group(group)
+          .channel(LocalChannel.class);
+
+        ServerBootstrap sb = new ServerBootstrap();
+        sb.group(group)
+          .channel(LocalServerChannel.class)
+          .childHandler(new ChannelInitializer<LocalChannel>() {
+              @Override
+              public void initChannel(LocalChannel ch) throws Exception {
+                  ch.pipeline().addLast(new ChannelInboundHandlerAdapter());
+              }
+          });
+
+        // Start server
+        Channel sc = sb.bind(addr).syncUninterruptibly().channel();
+        ChannelPoolHandler handler = new TestChannelPoolHandler();
+        ChannelPool pool = new FixedChannelPool(cb, handler, 1);
+        Channel channel1 = pool.acquire().syncUninterruptibly().getNow();
+        channel1.close().syncUninterruptibly();
+        pool.release(channel1);
+
+        Channel channel2 = pool.acquire().syncUninterruptibly().getNow();
+
+        assertNotSame(channel1, channel2);
+        sc.close().syncUninterruptibly();
+        channel2.close().syncUninterruptibly();
+        group.shutdownGracefully();
+    }
+
     @Test(expected = IllegalStateException.class)
     public void testAcquireBoundQueue() throws Exception {
         EventLoopGroup group = new LocalEventLoopGroup();
@@ -222,6 +262,42 @@ public class FixedChannelPoolTest {
             channel.close().syncUninterruptibly();
             group.shutdownGracefully();
         }
+    }
+
+    @Test
+    public void testReleaseAfterClosePool() throws Exception {
+        EventLoopGroup group = new LocalEventLoopGroup(1);
+        LocalAddress addr = new LocalAddress(LOCAL_ADDR_ID);
+        Bootstrap cb = new Bootstrap();
+        cb.remoteAddress(addr);
+        cb.group(group).channel(LocalChannel.class);
+
+        ServerBootstrap sb = new ServerBootstrap();
+        sb.group(group)
+                .channel(LocalServerChannel.class)
+                .childHandler(new ChannelInitializer<LocalChannel>() {
+                    @Override
+                    public void initChannel(LocalChannel ch) throws Exception {
+                        ch.pipeline().addLast(new ChannelInboundHandlerAdapter());
+                    }
+                });
+
+        // Start server
+        Channel sc = sb.bind(addr).syncUninterruptibly().channel();
+
+        FixedChannelPool pool = new FixedChannelPool(cb, new TestChannelPoolHandler(), 2);
+        final Future<Channel> acquire = pool.acquire();
+        final Channel channel = acquire.get();
+        pool.close();
+        group.submit(new Runnable() {
+            @Override
+            public void run() {
+                // NOOP
+            }
+        }).syncUninterruptibly();
+        pool.release(channel).syncUninterruptibly();
+        sc.close().syncUninterruptibly();
+        channel.close().syncUninterruptibly();
     }
 
     private static final class TestChannelPoolHandler extends AbstractChannelPoolHandler {

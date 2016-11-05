@@ -51,8 +51,6 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         this.offset = offset;
         this.length = length;
         this.maxLength = maxLength;
-        setIndex(0, 0);
-        discardMarks();
         tmpNioBuf = null;
         this.cache = cache;
     }
@@ -65,19 +63,18 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
         memory = chunk.memory;
         offset = 0;
         this.length = maxLength = length;
-        setIndex(0, 0);
         tmpNioBuf = null;
         cache = null;
     }
 
-    @Override
-    public ByteBuf slice(int index, int length) {
-        return PooledSlicedByteBuf.newInstance(this, index, length);
-    }
-
-    @Override
-    public ByteBuf duplicate() {
-        return PooledDuplicatedByteBuf.newInstance(this);
+    /**
+     * Method must be called before reuse this {@link PooledByteBufAllocator}
+     */
+    final void reuse(int maxCapacity) {
+        maxCapacity(maxCapacity);
+        setRefCnt(1);
+        setIndex0(0, 0);
+        discardMarks();
     }
 
     @Override
@@ -137,6 +134,22 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     @Override
     public final ByteBuf unwrap() {
         return null;
+    }
+
+    @Override
+    public final ByteBuf retainedDuplicate() {
+        return PooledDuplicatedByteBuf.newInstance(this, this, readerIndex(), writerIndex());
+    }
+
+    @Override
+    public final ByteBuf retainedSlice() {
+        final int index = readerIndex();
+        return retainedSlice(index, writerIndex() - index);
+    }
+
+    @Override
+    public final ByteBuf retainedSlice(int index, int length) {
+        return PooledSlicedByteBuf.newInstance(this, this, index, length);
     }
 
     protected final ByteBuffer internalNioBuffer() {

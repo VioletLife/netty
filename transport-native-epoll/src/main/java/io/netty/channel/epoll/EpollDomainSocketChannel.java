@@ -22,8 +22,13 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.unix.DomainSocketAddress;
 import io.netty.channel.unix.DomainSocketChannel;
 import io.netty.channel.unix.FileDescriptor;
+import io.netty.channel.unix.PeerCredentials;
+import io.netty.channel.unix.Socket;
 
 import java.net.SocketAddress;
+
+import static io.netty.channel.unix.Socket.newSocketDomain;
+import java.io.IOException;
 
 public final class EpollDomainSocketChannel extends AbstractEpollStreamChannel implements DomainSocketChannel {
     private final EpollDomainSocketChannelConfig config = new EpollDomainSocketChannelConfig(this);
@@ -32,22 +37,36 @@ public final class EpollDomainSocketChannel extends AbstractEpollStreamChannel i
     private volatile DomainSocketAddress remote;
 
     public EpollDomainSocketChannel() {
-        super(Native.socketDomainFd());
+        super(newSocketDomain(), false);
     }
 
+    /**
+     * @deprecated Use {@link #EpollDomainSocketChannel(Channel, Socket)}.
+     */
+    @Deprecated
     public EpollDomainSocketChannel(Channel parent, FileDescriptor fd) {
-        super(parent, fd.intValue());
+        super(parent, new Socket(fd.intValue()));
+    }
+
+    /**
+     * @deprecated Use {@link #EpollDomainSocketChannel(Socket, boolean)}.
+     * <p>
+     * Creates a new {@link EpollDomainSocketChannel} from an existing {@link FileDescriptor}
+     */
+    @Deprecated
+    public EpollDomainSocketChannel(FileDescriptor fd) {
+        super(fd);
+    }
+
+    public EpollDomainSocketChannel(Channel parent, Socket fd) {
+        super(parent, fd);
     }
 
     /**
      * Creates a new {@link EpollDomainSocketChannel} from an existing {@link FileDescriptor}
      */
-    public EpollDomainSocketChannel(FileDescriptor fd) {
-        super(fd);
-    }
-
-    EpollDomainSocketChannel(Channel parent, int fd) {
-        super(parent, fd);
+    public EpollDomainSocketChannel(Socket fd, boolean active) {
+        super(fd, active);
     }
 
     @Override
@@ -67,7 +86,7 @@ public final class EpollDomainSocketChannel extends AbstractEpollStreamChannel i
 
     @Override
     protected void doBind(SocketAddress localAddress) throws Exception {
-        Native.bind(fd().intValue(), localAddress);
+        fd().bind(localAddress);
         local = (DomainSocketAddress) localAddress;
     }
 
@@ -115,6 +134,14 @@ public final class EpollDomainSocketChannel extends AbstractEpollStreamChannel i
         return super.filterOutboundMessage(msg);
     }
 
+    /**
+     * Returns the unix credentials (uid, gid, pid) of the peer
+     * <a href=http://man7.org/linux/man-pages/man7/socket.7.html>SO_PEERCRED</a>
+     */
+    public PeerCredentials peerCredentials() throws IOException {
+        return fd().getPeerCredentials();
+    }
+
     private final class EpollDomainUnsafe extends EpollStreamUnsafe {
         @Override
         void epollInReady() {
@@ -131,71 +158,46 @@ public final class EpollDomainSocketChannel extends AbstractEpollStreamChannel i
         }
 
         private void epollInReadFd() {
-            boolean edgeTriggered = isFlagSet(Native.EPOLLET);
-            final ChannelConfig config = config();
-            if (!readPending && !edgeTriggered && !config.isAutoRead()) {
-                // ChannelConfig.setAutoRead(false) was called in the meantime
+            if (fd().isInputShutdown()) {
                 clearEpollIn0();
                 return;
             }
+            final ChannelConfig config = config();
+            final EpollRecvByteAllocatorHandle allocHandle = recvBufAllocHandle();
+            allocHandle.edgeTriggered(isFlagSet(Native.EPOLLET));
 
             final ChannelPipeline pipeline = pipeline();
+            allocHandle.reset(config);
+            epollInBefore();
 
             try {
-                // if edgeTriggered is used we need to read all messages as we are not notified again otherwise.
-                final int maxMessagesPerRead = edgeTriggered
-                        ? Integer.MAX_VALUE : config.getMaxMessagesPerRead();
-                int messages = 0;
-                do {
-                    int socketFd = Native.recvFd(fd().intValue());
-                    if (socketFd == 0) {
-                        break;
-                    }
-                    if (socketFd == -1) {
+                readLoop: do {
+                    // lastBytesRead represents the fd. We use lastBytesRead because it must be set so that the
+                    // EpollRecvByteAllocatorHandle knows if it should try to read again or not when autoRead is
+                    // enabled.
+                    allocHandle.lastBytesRead(Native.recvFd(fd().intValue()));
+                    switch(allocHandle.lastBytesRead()) {
+                    case 0:
+                        break readLoop;
+                    case -1:
                         close(voidPromise());
                         return;
+                    default:
+                        allocHandle.incMessagesRead(1);
+                        readPending = false;
+                        pipeline.fireChannelRead(new FileDescriptor(allocHandle.lastBytesRead()));
+                        break;
                     }
-                    readPending = false;
+                } while (allocHandle.continueReading());
 
-                    try {
-                        pipeline.fireChannelRead(new FileDescriptor(socketFd));
-                    } catch (Throwable t) {
-                        // keep on reading as we use epoll ET and need to consume everything from the socket
-                        pipeline.fireChannelReadComplete();
-                        pipeline.fireExceptionCaught(t);
-                    } finally {
-                        if (!edgeTriggered && !config.isAutoRead()) {
-                            // This is not using EPOLLET so we can stop reading
-                            // ASAP as we will get notified again later with
-                            // pending data
-                            break;
-                        }
-                    }
-                } while (++ messages < maxMessagesPerRead);
-
+                allocHandle.readComplete();
                 pipeline.fireChannelReadComplete();
-
             } catch (Throwable t) {
+                allocHandle.readComplete();
                 pipeline.fireChannelReadComplete();
                 pipeline.fireExceptionCaught(t);
-                // trigger a read again as there may be something left to read and because of epoll ET we
-                // will not get notified again until we read everything from the socket
-                eventLoop().execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        epollInReady();
-                    }
-                });
             } finally {
-                // Check if there is a readPending which was not processed yet.
-                // This could be for two reasons:
-                // * The user called Channel.read() or ChannelHandlerContext.read() in channelRead(...) method
-                // * The user called Channel.read() or ChannelHandlerContext.read() in channelReadComplete(...) method
-                //
-                // See https://github.com/netty/netty/issues/2254
-                if (!readPending && !config.isAutoRead()) {
-                    clearEpollIn0();
-                }
+                epollInFinally(config);
             }
         }
     }

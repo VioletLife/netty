@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 The Netty Project
+ * Copyright 2015 The Netty Project
  *
  * The Netty Project licenses this file to you under the Apache License,
  * version 2.0 (the "License"); you may not use this file except in compliance
@@ -20,31 +20,33 @@ import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Promise;
 
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
+import java.util.List;
 
 /**
- * A {@link NameResolver} that resolves an {@link InetSocketAddress} using JDK's built-in domain name lookup mechanism.
+ * A {@link InetNameResolver} that resolves using JDK's built-in domain name lookup mechanism.
  * Note that this resolver performs a blocking name lookup from the caller thread.
  */
-public class DefaultNameResolver extends SimpleNameResolver<InetSocketAddress> {
+public class DefaultNameResolver extends InetNameResolver {
 
     public DefaultNameResolver(EventExecutor executor) {
         super(executor);
     }
 
     @Override
-    protected boolean doIsResolved(InetSocketAddress address) {
-        return !address.isUnresolved();
+    protected void doResolve(String inetHost, Promise<InetAddress> promise) throws Exception {
+        try {
+            promise.setSuccess(InetAddress.getByName(inetHost));
+        } catch (UnknownHostException e) {
+            promise.setFailure(e);
+        }
     }
 
     @Override
-    protected void doResolve(InetSocketAddress unresolvedAddress, Promise<InetSocketAddress> promise) throws Exception {
+    protected void doResolveAll(String inetHost, Promise<List<InetAddress>> promise) throws Exception {
         try {
-            // Note that InetSocketAddress.getHostName() will never incur a reverse lookup here,
-            // because an unresolved address always has a host name.
-            promise.setSuccess(new InetSocketAddress(
-                    InetAddress.getByName(unresolvedAddress.getHostName()), unresolvedAddress.getPort()));
+            promise.setSuccess(Arrays.asList(InetAddress.getAllByName(inetHost)));
         } catch (UnknownHostException e) {
             promise.setFailure(e);
         }

@@ -21,6 +21,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.DecoderException;
 import io.netty.util.CharsetUtil;
 import org.easymock.Mock;
 import org.junit.Before;
@@ -70,7 +71,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttConnectMessage decodedMessage = (MqttConnectMessage) out.get(0);
 
@@ -87,13 +88,35 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttConnectMessage decodedMessage = (MqttConnectMessage) out.get(0);
 
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
         vlidateConnectVariableHeader(message.variableHeader(), decodedMessage.variableHeader());
         validateConnectPayload(message.payload(), decodedMessage.payload());
+    }
+
+    @Test
+    public void testConnectMessageWithNonZeroReservedFlagForMqtt311() throws Exception {
+        final MqttConnectMessage message = createConnectMessage(MqttVersion.MQTT_3_1_1);
+        ByteBuf byteBuf = MqttEncoder.doEncode(ALLOCATOR, message);
+        try {
+            // Set the reserved flag in the CONNECT Packet to 1
+            byteBuf.setByte(9, byteBuf.getByte(9) | 0x1);
+            final List<Object> out = new LinkedList<Object>();
+            mqttDecoder.decode(ctx, byteBuf, out);
+
+            assertEquals("Expected one object but got " + out.size(), 1, out.size());
+
+            final MqttMessage decodedMessage = (MqttMessage) out.get(0);
+            assertTrue(decodedMessage.decoderResult().isFailure());
+            Throwable cause = decodedMessage.decoderResult().cause();
+            assertTrue(cause instanceof DecoderException);
+            assertEquals("non-zero reserved flag", cause.getMessage());
+        } finally {
+            byteBuf.release();
+        }
     }
 
     @Test
@@ -104,7 +127,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttConnAckMessage decodedMessage = (MqttConnAckMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -119,7 +142,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttPublishMessage decodedMessage = (MqttPublishMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -155,7 +178,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttSubscribeMessage decodedMessage = (MqttSubscribeMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -171,7 +194,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttSubAckMessage decodedMessage = (MqttSubAckMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -187,7 +210,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttUnsubscribeMessage decodedMessage = (MqttUnsubscribeMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -222,7 +245,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttMessage decodedMessage = (MqttMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -237,7 +260,7 @@ public class MqttCodecTest {
         final List<Object> out = new LinkedList<Object>();
         mqttDecoder.decode(ctx, byteBuf, out);
 
-        assertEquals("Expected one object bout got " + out.size(), 1, out.size());
+        assertEquals("Expected one object but got " + out.size(), 1, out.size());
 
         final MqttMessage decodedMessage = (MqttMessage) out.get(0);
         validateFixedHeaders(message.fixedHeader(), decodedMessage.fixedHeader());
@@ -289,7 +312,7 @@ public class MqttCodecTest {
         MqttFixedHeader mqttFixedHeader =
                 new MqttFixedHeader(MqttMessageType.CONNACK, false, MqttQoS.AT_MOST_ONCE, false, 0);
         MqttConnAckVariableHeader mqttConnAckVariableHeader =
-                new MqttConnAckVariableHeader(MqttConnectReturnCode.CONNECTION_ACCEPTED);
+                new MqttConnAckVariableHeader(MqttConnectReturnCode.CONNECTION_ACCEPTED, true);
         return new MqttConnAckMessage(mqttFixedHeader, mqttConnAckVariableHeader);
     }
 

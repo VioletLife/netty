@@ -18,12 +18,14 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.internal.UnstableApi;
 
 import java.util.List;
 
 /**
  * Decorator around another {@link Http2ConnectionDecoder} instance.
  */
+@UnstableApi
 public class DecoratingHttp2ConnectionDecoder implements Http2ConnectionDecoder {
     private final Http2ConnectionDecoder delegate;
 
@@ -47,8 +49,13 @@ public class DecoratingHttp2ConnectionDecoder implements Http2ConnectionDecoder 
     }
 
     @Override
-    public Http2FrameListener listener() {
-        return delegate.listener();
+    public void frameListener(Http2FrameListener listener) {
+        delegate.frameListener(listener);
+    }
+
+    @Override
+    public Http2FrameListener frameListener() {
+        return delegate.frameListener();
     }
 
     @Override
@@ -59,11 +66,6 @@ public class DecoratingHttp2ConnectionDecoder implements Http2ConnectionDecoder 
     @Override
     public Http2Settings localSettings() {
         return delegate.localSettings();
-    }
-
-    @Override
-    public void localSettings(Http2Settings settings) throws Http2Exception {
-        delegate.localSettings(settings);
     }
 
     @Override

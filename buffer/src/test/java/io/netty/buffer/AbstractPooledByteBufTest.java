@@ -15,58 +15,23 @@
  */
 package io.netty.buffer;
 
-import org.junit.Test;
-
 import static org.junit.Assert.*;
 
 public abstract class AbstractPooledByteBufTest extends AbstractByteBufTest {
-
-    private ByteBuf buffer;
 
     protected abstract ByteBuf alloc(int length);
 
     @Override
     protected ByteBuf newBuffer(int length) {
-        buffer = alloc(length);
+        ByteBuf buffer = alloc(length);
+
+        // Testing if the writerIndex and readerIndex are correct when allocate and also after we reset the mark.
+        assertEquals(0, buffer.writerIndex());
+        assertEquals(0, buffer.readerIndex());
+        buffer.resetReaderIndex();
+        buffer.resetWriterIndex();
         assertEquals(0, buffer.writerIndex());
         assertEquals(0, buffer.readerIndex());
         return buffer;
-    }
-
-    @Override
-    protected ByteBuf[] components() {
-        return new ByteBuf[] { buffer };
-    }
-
-    @Test
-    public void testDiscardMarks() {
-        ByteBuf buf = newBuffer(4);
-        buf.writeShort(1);
-
-        buf.skipBytes(1);
-
-        buf.markReaderIndex();
-        buf.markWriterIndex();
-        assertTrue(buf.release());
-
-        ByteBuf buf2 = newBuffer(4);
-
-        assertSame(unwrapIfNeeded(buf), unwrapIfNeeded(buf2));
-
-        buf2.writeShort(1);
-
-        buf2.resetReaderIndex();
-        buf2.resetWriterIndex();
-
-        assertEquals(0, buf2.readerIndex());
-        assertEquals(0, buf2.writerIndex());
-        assertTrue(buf2.release());
-    }
-
-    private static ByteBuf unwrapIfNeeded(ByteBuf buf) {
-        if (buf instanceof AdvancedLeakAwareByteBuf || buf instanceof SimpleLeakAwareByteBuf) {
-            return buf.unwrap();
-        }
-        return buf;
     }
 }

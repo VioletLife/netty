@@ -145,7 +145,7 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      *              for GlobalChannel TSH it is defined as
      *              {@value #GLOBALCHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX}.
      */
-    int userDefinedWritabilityIndex() {
+    protected int userDefinedWritabilityIndex() {
         if (this instanceof GlobalChannelTrafficShapingHandler) {
             return GLOBALCHANNEL_DEFAULT_USER_DEFINED_WRITABILITY_INDEX;
         } else if (this instanceof GlobalTrafficShapingHandler) {
@@ -633,15 +633,8 @@ public abstract class AbstractTrafficShapingHandler extends ChannelDuplexHandler
      * Calculate the size of the given {@link Object}.
      *
      * This implementation supports {@link ByteBuf} and {@link ByteBufHolder}. Sub-classes may override this.
-<<<<<<< HEAD
-     * @param msg       the msg for which the size should be calculated
-     * @return size     the size of the msg or {@code -1} if unknown.
-=======
-     *
-     * @param msg
-     *            the msg for which the size should be calculated.
+     * @param msg the msg for which the size should be calculated.
      * @return size the size of the msg or {@code -1} if unknown.
->>>>>>> b886c05... Fix big transfer and Write traffic shaping issues
      */
     protected long calculateSize(Object msg) {
         if (msg instanceof ByteBuf) {

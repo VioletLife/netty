@@ -23,6 +23,10 @@ import io.netty.util.AsciiString;
  */
 public final class HttpHeaderValues {
     /**
+     * {@code "application/json"}
+     */
+    public static final AsciiString APPLICATION_JSON = new AsciiString("application/json");
+    /**
      * {@code "application/x-www-form-urlencoded"}
      */
     public static final AsciiString APPLICATION_X_WWW_FORM_URLENCODED =
@@ -100,6 +104,10 @@ public final class HttpHeaderValues {
      */
     public static final AsciiString GZIP = new AsciiString("gzip");
     /**
+     * {@code "gzip,deflate"}
+     */
+    public static final AsciiString GZIP_DEFLATE = new AsciiString("gzip,deflate");
+    /**
      * {@code "x-gzip"}
      */
     public static final AsciiString X_GZIP = new AsciiString("x-gzip");
@@ -157,6 +165,10 @@ public final class HttpHeaderValues {
      */
     public static final AsciiString NONE = new AsciiString("none");
     /**
+     * {@code "0"}
+     */
+    public static final AsciiString ZERO = new AsciiString("0");
+    /**
      * {@code "only-if-cached"}
      */
     public static final AsciiString ONLY_IF_CACHED = new AsciiString("only-if-cached");
@@ -189,9 +201,9 @@ public final class HttpHeaderValues {
      */
     public static final AsciiString TRAILERS = new AsciiString("trailers");
     /**
-     * {@code "Upgrade"}
+     * {@code "upgrade"}
      */
-    public static final AsciiString UPGRADE = new AsciiString("Upgrade");
+    public static final AsciiString UPGRADE = new AsciiString("upgrade");
     /**
      * {@code "websocket"}
      */

@@ -19,6 +19,7 @@ import com.sun.nio.sctp.Association;
 import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.NotificationHandler;
 import com.sun.nio.sctp.SctpChannel;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelException;
@@ -181,37 +182,35 @@ public class OioSctpChannel extends AbstractOioMessageChannel
         if (!keysSelected) {
             return readMessages;
         }
+        // We must clear the selectedKeys because the Selector will never do it. If we do not clear it, the selectionKey
+        // will always be returned even if there is no data can be read which causes performance issue. And in some
+        // implementation of Selector, the select method may return 0 if the selectionKey which is ready for process has
+        // already been in the selectedKeys and cause the keysSelected above to be false even if we actually have
+        // something to read.
+        readSelector.selectedKeys().clear();
+        final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+        ByteBuf buffer = allocHandle.allocate(config().getAllocator());
+        boolean free = true;
 
-        Set<SelectionKey> reableKeys = readSelector.selectedKeys();
         try {
-            for (SelectionKey ignored : reableKeys) {
-                RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
-                ByteBuf buffer = allocHandle.allocate(config().getAllocator());
-                boolean free = true;
-
-                try {
-                    ByteBuffer data = buffer.nioBuffer(buffer.writerIndex(), buffer.writableBytes());
-                    MessageInfo messageInfo = ch.receive(data, null, notificationHandler);
-                    if (messageInfo == null) {
-                        return readMessages;
-                    }
-
-                    data.flip();
-                    msgs.add(new SctpMessage(messageInfo, buffer.writerIndex(buffer.writerIndex() + data.remaining())));
-                    free = false;
-                    readMessages ++;
-                } catch (Throwable cause) {
-                    PlatformDependent.throwException(cause);
-                }  finally {
-                    int bytesRead = buffer.readableBytes();
-                    allocHandle.record(bytesRead);
-                    if (free) {
-                        buffer.release();
-                    }
-                }
+            ByteBuffer data = buffer.nioBuffer(buffer.writerIndex(), buffer.writableBytes());
+            MessageInfo messageInfo = ch.receive(data, null, notificationHandler);
+            if (messageInfo == null) {
+                return readMessages;
             }
-        } finally {
-            reableKeys.clear();
+
+            data.flip();
+            allocHandle.lastBytesRead(data.remaining());
+            msgs.add(new SctpMessage(messageInfo,
+                    buffer.writerIndex(buffer.writerIndex() + allocHandle.lastBytesRead())));
+            free = false;
+            ++readMessages;
+        } catch (Throwable cause) {
+            PlatformDependent.throwException(cause);
+        }  finally {
+            if (free) {
+                buffer.release();
+            }
         }
         return readMessages;
     }
@@ -464,7 +463,7 @@ public class OioSctpChannel extends AbstractOioMessageChannel
 
         @Override
         protected void autoReadCleared() {
-            setReadPending(false);
+            clearReadPending();
         }
     }
 }

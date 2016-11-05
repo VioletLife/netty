@@ -15,17 +15,18 @@
 
 package io.netty.handler.codec.http2;
 
-import io.netty.handler.codec.BinaryHeaders;
-import io.netty.util.ByteString;
-import io.netty.util.CharsetUtil;
+import io.netty.handler.codec.Headers;
+import io.netty.util.AsciiString;
+import io.netty.util.internal.UnstableApi;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Iterator;
+import java.util.Map.Entry;
 
 /**
  * A collection of headers sent or received via HTTP/2.
  */
-public interface Http2Headers extends BinaryHeaders {
+@UnstableApi
+public interface Http2Headers extends Headers<CharSequence, CharSequence, Http2Headers> {
 
     /**
      * HTTP/2 pseudo-headers names.
@@ -56,19 +57,19 @@ public interface Http2Headers extends BinaryHeaders {
          */
         STATUS(":status");
 
-        private final ByteString value;
-        private static final Set<ByteString> PSEUDO_HEADERS = new HashSet<ByteString>();
+        private final AsciiString value;
+        private static final CharSequenceMap<AsciiString> PSEUDO_HEADERS = new CharSequenceMap<AsciiString>();
         static {
             for (PseudoHeaderName pseudoHeader : PseudoHeaderName.values()) {
-                PSEUDO_HEADERS.add(pseudoHeader.value());
+                PSEUDO_HEADERS.add(pseudoHeader.value(), AsciiString.EMPTY_STRING);
             }
         }
 
         PseudoHeaderName(String value) {
-            this.value = new ByteString(value, CharsetUtil.UTF_8);
+            this.value = new AsciiString(value);
         }
 
-        public ByteString value() {
+        public AsciiString value() {
             // Return a slice so that the buffer gets its own reader index.
             return value;
         }
@@ -76,160 +77,66 @@ public interface Http2Headers extends BinaryHeaders {
         /**
          * Indicates whether the given header name is a valid HTTP/2 pseudo header.
          */
-        public static boolean isPseudoHeader(ByteString header) {
+        public static boolean isPseudoHeader(CharSequence header) {
             return PSEUDO_HEADERS.contains(header);
         }
     }
 
+    /**
+     * Returns an iterator over all HTTP/2 headers. The iteration order is as follows:
+     *   1. All pseudo headers (order not specified).
+     *   2. All non-pseudo headers (in insertion order).
+     */
     @Override
-    Http2Headers add(ByteString name, ByteString value);
-
-    @Override
-    Http2Headers add(ByteString name, Iterable<? extends ByteString> values);
-
-    @Override
-    Http2Headers add(ByteString name, ByteString... values);
-
-    @Override
-    Http2Headers addObject(ByteString name, Object value);
-
-    @Override
-    Http2Headers addObject(ByteString name, Iterable<?> values);
-
-    @Override
-    Http2Headers addObject(ByteString name, Object... values);
-
-    @Override
-    Http2Headers addBoolean(ByteString name, boolean value);
-
-    @Override
-    Http2Headers addByte(ByteString name, byte value);
-
-    @Override
-    Http2Headers addChar(ByteString name, char value);
-
-    @Override
-    Http2Headers addShort(ByteString name, short value);
-
-    @Override
-    Http2Headers addInt(ByteString name, int value);
-
-    @Override
-    Http2Headers addLong(ByteString name, long value);
-
-    @Override
-    Http2Headers addFloat(ByteString name, float value);
-
-    @Override
-    Http2Headers addDouble(ByteString name, double value);
-
-    @Override
-    Http2Headers addTimeMillis(ByteString name, long value);
-
-    @Override
-    Http2Headers add(BinaryHeaders headers);
-
-    @Override
-    Http2Headers set(ByteString name, ByteString value);
-
-    @Override
-    Http2Headers set(ByteString name, Iterable<? extends ByteString> values);
-
-    @Override
-    Http2Headers set(ByteString name, ByteString... values);
-
-    @Override
-    Http2Headers setObject(ByteString name, Object value);
-
-    @Override
-    Http2Headers setObject(ByteString name, Iterable<?> values);
-
-    @Override
-    Http2Headers setObject(ByteString name, Object... values);
-
-    @Override
-    Http2Headers setBoolean(ByteString name, boolean value);
-
-    @Override
-    Http2Headers setByte(ByteString name, byte value);
-
-    @Override
-    Http2Headers setChar(ByteString name, char value);
-
-    @Override
-    Http2Headers setShort(ByteString name, short value);
-
-    @Override
-    Http2Headers setInt(ByteString name, int value);
-
-    @Override
-    Http2Headers setLong(ByteString name, long value);
-
-    @Override
-    Http2Headers setFloat(ByteString name, float value);
-
-    @Override
-    Http2Headers setDouble(ByteString name, double value);
-
-    @Override
-    Http2Headers setTimeMillis(ByteString name, long value);
-
-    @Override
-    Http2Headers set(BinaryHeaders headers);
-
-    @Override
-    Http2Headers setAll(BinaryHeaders headers);
-
-    @Override
-    Http2Headers clear();
+    Iterator<Entry<CharSequence, CharSequence>> iterator();
 
     /**
      * Sets the {@link PseudoHeaderName#METHOD} header or {@code null} if there is no such header
      */
-    Http2Headers method(ByteString value);
+    Http2Headers method(CharSequence value);
 
     /**
      * Sets the {@link PseudoHeaderName#SCHEME} header if there is no such header
      */
-    Http2Headers scheme(ByteString value);
+    Http2Headers scheme(CharSequence value);
 
     /**
      * Sets the {@link PseudoHeaderName#AUTHORITY} header or {@code null} if there is no such header
      */
-    Http2Headers authority(ByteString value);
+    Http2Headers authority(CharSequence value);
 
     /**
      * Sets the {@link PseudoHeaderName#PATH} header or {@code null} if there is no such header
      */
-    Http2Headers path(ByteString value);
+    Http2Headers path(CharSequence value);
 
     /**
      * Sets the {@link PseudoHeaderName#STATUS} header or {@code null} if there is no such header
      */
-    Http2Headers status(ByteString value);
+    Http2Headers status(CharSequence value);
 
     /**
      * Gets the {@link PseudoHeaderName#METHOD} header or {@code null} if there is no such header
      */
-    ByteString method();
+    CharSequence method();
 
     /**
      * Gets the {@link PseudoHeaderName#SCHEME} header or {@code null} if there is no such header
      */
-    ByteString scheme();
+    CharSequence scheme();
 
     /**
      * Gets the {@link PseudoHeaderName#AUTHORITY} header or {@code null} if there is no such header
      */
-    ByteString authority();
+    CharSequence authority();
 
     /**
      * Gets the {@link PseudoHeaderName#PATH} header or {@code null} if there is no such header
      */
-    ByteString path();
+    CharSequence path();
 
     /**
      * Gets the {@link PseudoHeaderName#STATUS} header or {@code null} if there is no such header
      */
-    ByteString status();
+    CharSequence status();
 }

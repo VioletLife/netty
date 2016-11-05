@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelConfig;
 import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
+import io.netty.channel.WriteBufferWaterMark;
 
 /**
  * A configuration class for RXTX device connections.
@@ -256,7 +257,7 @@ public interface RxtxChannelConfig extends ChannelConfig {
      *
      * @param waitTimeMillis The number of milliseconds to wait, defaulting to 0 (no
      *     wait) if unset
-     * @throws IllegalArgumentException if the supplied value is < 0
+     * @throws IllegalArgumentException if the supplied value is &lt; 0
      */
     RxtxChannelConfig setWaitTimeMillis(int waitTimeMillis);
 
@@ -274,6 +275,7 @@ public interface RxtxChannelConfig extends ChannelConfig {
     RxtxChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
 
     @Override
+    @Deprecated
     RxtxChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
 
     @Override
@@ -296,6 +298,9 @@ public interface RxtxChannelConfig extends ChannelConfig {
 
     @Override
     RxtxChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    @Override
+    RxtxChannelConfig setWriteBufferWaterMark(WriteBufferWaterMark writeBufferWaterMark);
 
     @Override
     RxtxChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);

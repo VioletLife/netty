@@ -108,6 +108,34 @@ public abstract class ByteToMessageCodec<I> extends ChannelDuplexHandler {
         encoder.write(ctx, msg, promise);
     }
 
+    @Override
+    public void channelReadComplete(ChannelHandlerContext ctx) throws Exception {
+        decoder.channelReadComplete(ctx);
+    }
+
+    @Override
+    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+        decoder.channelInactive(ctx);
+    }
+
+    @Override
+    public void handlerAdded(ChannelHandlerContext ctx) throws Exception {
+        try {
+            decoder.handlerAdded(ctx);
+        } finally {
+            encoder.handlerAdded(ctx);
+        }
+    }
+
+    @Override
+    public void handlerRemoved(ChannelHandlerContext ctx) throws Exception {
+        try {
+            decoder.handlerRemoved(ctx);
+        } finally {
+            encoder.handlerRemoved(ctx);
+        }
+    }
+
     /**
      * @see MessageToByteEncoder#encode(ChannelHandlerContext, Object, ByteBuf)
      */
@@ -122,7 +150,11 @@ public abstract class ByteToMessageCodec<I> extends ChannelDuplexHandler {
      * @see ByteToMessageDecoder#decodeLast(ChannelHandlerContext, ByteBuf, List)
      */
     protected void decodeLast(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) throws Exception {
-        decode(ctx, in, out);
+        if (in.isReadable()) {
+            // Only call decode() if there is something left in the buffer to decode.
+            // See https://github.com/netty/netty/issues/4386
+            decode(ctx, in, out);
+        }
     }
 
     private final class Encoder extends MessageToByteEncoder<I> {

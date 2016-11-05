@@ -21,6 +21,7 @@ import io.netty.channel.ChannelOutboundBuffer;
 import io.netty.channel.nio.AbstractNioMessageChannel;
 import io.netty.channel.socket.DefaultServerSocketChannelConfig;
 import io.netty.channel.socket.ServerSocketChannelConfig;
+import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
@@ -41,7 +42,7 @@ import java.util.List;
 public class NioServerSocketChannel extends AbstractNioMessageChannel
                              implements io.netty.channel.socket.ServerSocketChannel {
 
-    private static final ChannelMetadata METADATA = new ChannelMetadata(false);
+    private static final ChannelMetadata METADATA = new ChannelMetadata(false, 16);
     private static final SelectorProvider DEFAULT_SELECTOR_PROVIDER = SelectorProvider.provider();
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(NioServerSocketChannel.class);
@@ -52,7 +53,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
              *  Use the {@link SelectorProvider} to open {@link SocketChannel} and so remove condition in
              *  {@link SelectorProvider#provider()} which is called by each ServerSocketChannel.open() otherwise.
              *
-             *  See <a href="See https://github.com/netty/netty/issues/2308">#2308</a>.
+             *  See <a href="https://github.com/netty/netty/issues/2308">#2308</a>.
              */
             return provider.openServerSocketChannel();
         } catch (IOException e) {
@@ -122,7 +123,11 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     @Override
     protected void doBind(SocketAddress localAddress) throws Exception {
-        javaChannel().socket().bind(localAddress, config.getBacklog());
+        if (PlatformDependent.javaVersion() >= 7) {
+            javaChannel().bind(localAddress, config.getBacklog());
+        } else {
+            javaChannel().socket().bind(localAddress, config.getBacklog());
+        }
     }
 
     @Override
@@ -191,7 +196,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
         @Override
         protected void autoReadCleared() {
-            setReadPending(false);
+            clearReadPending();
         }
     }
 }

@@ -15,37 +15,24 @@
  */
 package io.netty.handler.ssl;
 
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assume.assumeNoException;
-import io.netty.bootstrap.Bootstrap;
-import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelHandlerAdapter;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.ChannelPipeline;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.ssl.ApplicationProtocolConfig.Protocol;
+import io.netty.handler.ssl.ApplicationProtocolConfig.SelectedListenerFailureBehavior;
+import io.netty.handler.ssl.ApplicationProtocolConfig.SelectorFailureBehavior;
 import io.netty.handler.ssl.JdkApplicationProtocolNegotiator.ProtocolSelector;
 import io.netty.handler.ssl.JdkApplicationProtocolNegotiator.ProtocolSelectorFactory;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
-import io.netty.util.NetUtil;
+import org.junit.Test;
 
-import java.net.InetSocketAddress;
-import java.security.cert.CertificateException;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLHandshakeException;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLException;
-import javax.net.ssl.SSLHandshakeException;
-
-import org.junit.Test;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeNoException;
 
 public class JdkSslEngineTest extends SSLEngineTest {
     private static final String PREFERRED_APPLICATION_LEVEL_PROTOCOL = "my-protocol-http2";
@@ -59,13 +46,13 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkNpnSslEngine.isAvailable()) {
-                throw new RuntimeException("NPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.NPN);
             }
-            JdkApplicationProtocolNegotiator apn = new JdkNpnApplicationProtocolNegotiator(true, true,
+            ApplicationProtocolConfig apn = failingNegotiator(Protocol.NPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            mySetup(apn);
+            setupHandlers(apn);
             runTest();
-        } catch (RuntimeException e) {
+        } catch (SkipTestException e) {
             // NPN availability is dependent on the java version. If NPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -79,15 +66,15 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkNpnSslEngine.isAvailable()) {
-                throw new RuntimeException("NPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.NPN);
             }
-            JdkApplicationProtocolNegotiator clientApn = new JdkNpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig clientApn = acceptingNegotiator(Protocol.NPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            JdkApplicationProtocolNegotiator serverApn = new JdkNpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig serverApn = acceptingNegotiator(Protocol.NPN,
                     APPLICATION_LEVEL_PROTOCOL_NOT_COMPATIBLE);
-            mySetup(serverApn, clientApn);
+            setupHandlers(serverApn, clientApn);
             runTest(null);
-        } catch (Exception e) {
+        } catch (SkipTestException e) {
             // ALPN availability is dependent on the java version. If ALPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -101,16 +88,16 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkNpnSslEngine.isAvailable()) {
-                throw new RuntimeException("NPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.NPN);
             }
-            JdkApplicationProtocolNegotiator clientApn = new JdkNpnApplicationProtocolNegotiator(true, true,
+            ApplicationProtocolConfig clientApn = failingNegotiator(Protocol.NPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            JdkApplicationProtocolNegotiator serverApn = new JdkNpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig serverApn = acceptingNegotiator(Protocol.NPN,
                     APPLICATION_LEVEL_PROTOCOL_NOT_COMPATIBLE);
-            mySetup(serverApn, clientApn);
+            setupHandlers(serverApn, clientApn);
             assertTrue(clientLatch.await(2, TimeUnit.SECONDS));
             assertTrue(clientException instanceof SSLHandshakeException);
-        } catch (RuntimeException e) {
+        } catch (SkipTestException e) {
             // NPN availability is dependent on the java version. If NPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -124,16 +111,16 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkNpnSslEngine.isAvailable()) {
-                throw new RuntimeException("NPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.NPN);
             }
-            JdkApplicationProtocolNegotiator clientApn = new JdkNpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig clientApn = acceptingNegotiator(Protocol.NPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            JdkApplicationProtocolNegotiator serverApn = new JdkNpnApplicationProtocolNegotiator(true, true,
+            ApplicationProtocolConfig serverApn = failingNegotiator(Protocol.NPN,
                     APPLICATION_LEVEL_PROTOCOL_NOT_COMPATIBLE);
-            mySetup(serverApn, clientApn);
+            setupHandlers(serverApn, clientApn);
             assertTrue(serverLatch.await(2, TimeUnit.SECONDS));
             assertTrue(serverException instanceof SSLHandshakeException);
-        } catch (RuntimeException e) {
+        } catch (SkipTestException e) {
             // NPN availability is dependent on the java version. If NPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -147,13 +134,13 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkAlpnSslEngine.isAvailable()) {
-                throw new RuntimeException("ALPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.ALPN);
             }
-            JdkApplicationProtocolNegotiator apn = new JdkAlpnApplicationProtocolNegotiator(true, true,
+            ApplicationProtocolConfig apn = failingNegotiator(Protocol.ALPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            mySetup(apn);
+            setupHandlers(apn);
             runTest();
-        } catch (Exception e) {
+        } catch (SkipTestException e) {
             // ALPN availability is dependent on the java version. If ALPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -167,15 +154,15 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkAlpnSslEngine.isAvailable()) {
-                throw new RuntimeException("ALPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.ALPN);
             }
-            JdkApplicationProtocolNegotiator clientApn = new JdkAlpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig clientApn = acceptingNegotiator(Protocol.ALPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            JdkApplicationProtocolNegotiator serverApn = new JdkAlpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig serverApn = acceptingNegotiator(Protocol.ALPN,
                     APPLICATION_LEVEL_PROTOCOL_NOT_COMPATIBLE);
-            mySetup(serverApn, clientApn);
+            setupHandlers(serverApn, clientApn);
             runTest(null);
-        } catch (Exception e) {
+        } catch (SkipTestException e) {
             // ALPN availability is dependent on the java version. If ALPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -189,16 +176,16 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkAlpnSslEngine.isAvailable()) {
-                throw new RuntimeException("ALPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.ALPN);
             }
-            JdkApplicationProtocolNegotiator clientApn = new JdkAlpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig clientApn = acceptingNegotiator(Protocol.ALPN,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            JdkApplicationProtocolNegotiator serverApn = new JdkAlpnApplicationProtocolNegotiator(true, true,
+            ApplicationProtocolConfig serverApn = failingNegotiator(Protocol.ALPN,
                     APPLICATION_LEVEL_PROTOCOL_NOT_COMPATIBLE);
-            mySetup(serverApn, clientApn);
+            setupHandlers(serverApn, clientApn);
             assertTrue(serverLatch.await(2, TimeUnit.SECONDS));
             assertTrue(serverException instanceof SSLHandshakeException);
-        } catch (Exception e) {
+        } catch (SkipTestException e) {
             // ALPN availability is dependent on the java version. If ALPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -212,18 +199,18 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkAlpnSslEngine.isAvailable()) {
-                throw new RuntimeException("ALPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.ALPN);
             }
             // Even the preferred application protocol appears second in the client's list, it will be picked
             // because it's the first one on server's list.
-            JdkApplicationProtocolNegotiator clientApn = new JdkAlpnApplicationProtocolNegotiator(false, false,
+            ApplicationProtocolConfig clientApn = acceptingNegotiator(Protocol.ALPN,
                 FALLBACK_APPLICATION_LEVEL_PROTOCOL, PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-            JdkApplicationProtocolNegotiator serverApn = new JdkAlpnApplicationProtocolNegotiator(true, true,
+            ApplicationProtocolConfig serverApn = failingNegotiator(Protocol.ALPN,
                 PREFERRED_APPLICATION_LEVEL_PROTOCOL, FALLBACK_APPLICATION_LEVEL_PROTOCOL);
-            mySetup(serverApn, clientApn);
+            setupHandlers(serverApn, clientApn);
             assertNull(serverException);
             runTest(PREFERRED_APPLICATION_LEVEL_PROTOCOL);
-        } catch (Exception e) {
+        } catch (SkipTestException e) {
             // ALPN availability is dependent on the java version. If ALPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
@@ -237,8 +224,9 @@ public class JdkSslEngineTest extends SSLEngineTest {
             // Check in this test just in case we have multiple tests that just the class and we already ignored the
             // initialization error.
             if (!JdkAlpnSslEngine.isAvailable()) {
-                throw new RuntimeException("ALPN not on classpath");
+                throw tlsExtensionNotFound(Protocol.ALPN);
             }
+            SelfSignedCertificate ssc = new SelfSignedCertificate();
             JdkApplicationProtocolNegotiator clientApn = new JdkAlpnApplicationProtocolNegotiator(true, true,
                     PREFERRED_APPLICATION_LEVEL_PROTOCOL);
             JdkApplicationProtocolNegotiator serverApn = new JdkAlpnApplicationProtocolNegotiator(
@@ -258,84 +246,25 @@ public class JdkSslEngineTest extends SSLEngineTest {
                         }
                     }, JdkBaseApplicationProtocolNegotiator.FAIL_SELECTION_LISTENER_FACTORY,
                     APPLICATION_LEVEL_PROTOCOL_NOT_COMPATIBLE);
-            mySetup(serverApn, clientApn);
+
+            SslContext serverSslCtx = new JdkSslServerContext(ssc.certificate(), ssc.privateKey(), null, null,
+                    IdentityCipherSuiteFilter.INSTANCE, serverApn, 0, 0);
+            SslContext clientSslCtx = new JdkSslClientContext(null, InsecureTrustManagerFactory.INSTANCE, null,
+                    IdentityCipherSuiteFilter.INSTANCE, clientApn, 0, 0);
+
+            setupHandlers(serverSslCtx, clientSslCtx);
             assertTrue(clientLatch.await(2, TimeUnit.SECONDS));
             assertTrue(clientException instanceof SSLHandshakeException);
-        } catch (Exception e) {
+        } catch (SkipTestException e) {
             // ALPN availability is dependent on the java version. If ALPN is not available because of
             // java version incompatibility don't fail the test, but instead just skip the test
             assumeNoException(e);
         }
     }
 
-    private void mySetup(JdkApplicationProtocolNegotiator apn) throws InterruptedException, SSLException,
-            CertificateException {
-        mySetup(apn, apn);
-    }
-
-    private void mySetup(JdkApplicationProtocolNegotiator serverApn, JdkApplicationProtocolNegotiator clientApn)
-            throws InterruptedException, SSLException, CertificateException {
-        SelfSignedCertificate ssc = new SelfSignedCertificate();
-        serverSslCtx = new JdkSslServerContext(ssc.certificate(), ssc.privateKey(), null, null,
-                IdentityCipherSuiteFilter.INSTANCE, serverApn, 0, 0);
-        clientSslCtx = new JdkSslClientContext(null, InsecureTrustManagerFactory.INSTANCE, null,
-                IdentityCipherSuiteFilter.INSTANCE, clientApn, 0, 0);
-
-        serverConnectedChannel = null;
-        sb = new ServerBootstrap();
-        cb = new Bootstrap();
-
-        sb.group(new NioEventLoopGroup(), new NioEventLoopGroup());
-        sb.channel(NioServerSocketChannel.class);
-        sb.childHandler(new ChannelInitializer<Channel>() {
-            @Override
-            protected void initChannel(Channel ch) throws Exception {
-                ChannelPipeline p = ch.pipeline();
-                p.addLast(serverSslCtx.newHandler(ch.alloc()));
-                p.addLast(new MessageDelegatorChannelHandler(serverReceiver, serverLatch));
-                p.addLast(new ChannelHandlerAdapter() {
-                    @Override
-                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                        if (cause.getCause() instanceof SSLHandshakeException) {
-                            serverException = cause.getCause();
-                            serverLatch.countDown();
-                        } else {
-                            ctx.fireExceptionCaught(cause);
-                        }
-                    }
-                });
-                serverConnectedChannel = ch;
-            }
-        });
-
-        cb.group(new NioEventLoopGroup());
-        cb.channel(NioSocketChannel.class);
-        cb.handler(new ChannelInitializer<Channel>() {
-            @Override
-            protected void initChannel(Channel ch) throws Exception {
-                ChannelPipeline p = ch.pipeline();
-                p.addLast(clientSslCtx.newHandler(ch.alloc()));
-                p.addLast(new MessageDelegatorChannelHandler(clientReceiver, clientLatch));
-                p.addLast(new ChannelHandlerAdapter() {
-                    @Override
-                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                        if (cause.getCause() instanceof SSLHandshakeException) {
-                            clientException = cause.getCause();
-                            clientLatch.countDown();
-                        } else {
-                            ctx.fireExceptionCaught(cause);
-                        }
-                    }
-                });
-            }
-        });
-
-        serverChannel = sb.bind(new InetSocketAddress(0)).sync().channel();
-        int port = ((InetSocketAddress) serverChannel.localAddress()).getPort();
-
-        ChannelFuture ccf = cb.connect(new InetSocketAddress(NetUtil.LOCALHOST, port));
-        assertTrue(ccf.awaitUninterruptibly().isSuccess());
-        clientChannel = ccf.channel();
+    @Test
+    public void testEnablingAnAlreadyDisabledSslProtocol() throws Exception {
+        testEnablingAnAlreadyDisabledSslProtocol(new String[]{}, new String[]{PROTOCOL_TLS_V1_2});
     }
 
     private void runTest() throws Exception {
@@ -343,7 +272,38 @@ public class JdkSslEngineTest extends SSLEngineTest {
     }
 
     @Override
-    protected SslProvider sslProvider() {
+    protected SslProvider sslClientProvider() {
         return SslProvider.JDK;
+    }
+
+    @Override
+    protected SslProvider sslServerProvider() {
+        return SslProvider.JDK;
+    }
+
+    private ApplicationProtocolConfig failingNegotiator(Protocol protocol,
+                                                        String... supportedProtocols) {
+        return new ApplicationProtocolConfig(protocol,
+                SelectorFailureBehavior.FATAL_ALERT,
+                SelectedListenerFailureBehavior.FATAL_ALERT,
+                supportedProtocols);
+    }
+
+    private ApplicationProtocolConfig acceptingNegotiator(Protocol protocol,
+                                                          String... supportedProtocols) {
+        return new ApplicationProtocolConfig(protocol,
+                SelectorFailureBehavior.NO_ADVERTISE,
+                SelectedListenerFailureBehavior.ACCEPT,
+                supportedProtocols);
+    }
+
+    private SkipTestException tlsExtensionNotFound(Protocol protocol) {
+        throw new SkipTestException(protocol + " not on classpath");
+    }
+
+    private static final class SkipTestException extends RuntimeException {
+        public SkipTestException(String message) {
+            super(message);
+        }
     }
 }

@@ -27,7 +27,7 @@ import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.ssl.SslHandler;
 
-import static io.netty.handler.codec.http.HttpHeaderUtil.*;
+import static io.netty.handler.codec.http.HttpUtil.*;
 import static io.netty.handler.codec.http.HttpMethod.*;
 import static io.netty.handler.codec.http.HttpResponseStatus.*;
 import static io.netty.handler.codec.http.HttpVersion.*;
@@ -54,7 +54,12 @@ class WebSocketServerProtocolHandshakeHandler extends ChannelInboundHandlerAdapt
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
-        FullHttpRequest req = (FullHttpRequest) msg;
+        final FullHttpRequest req = (FullHttpRequest) msg;
+        if (!websocketPath.equals(req.uri())) {
+            ctx.fireChannelRead(msg);
+            return;
+        }
+
         try {
             if (req.method() != GET) {
                 sendHttpResponse(ctx, req, new DefaultFullHttpResponse(HTTP_1_1, FORBIDDEN));
@@ -75,12 +80,16 @@ class WebSocketServerProtocolHandshakeHandler extends ChannelInboundHandlerAdapt
                         if (!future.isSuccess()) {
                             ctx.fireExceptionCaught(future.cause());
                         } else {
+                            // Kept for compatibility
                             ctx.fireUserEventTriggered(
                                     WebSocketServerProtocolHandler.ServerHandshakeStateEvent.HANDSHAKE_COMPLETE);
+                            ctx.fireUserEventTriggered(
+                                    new WebSocketServerProtocolHandler.HandshakeComplete(
+                                            req.uri(), req.headers(), handshaker.selectedSubprotocol()));
                         }
                     }
                 });
-                WebSocketServerProtocolHandler.setHandshaker(ctx, handshaker);
+                WebSocketServerProtocolHandler.setHandshaker(ctx.channel(), handshaker);
                 ctx.pipeline().replace(this, "WS403Responder",
                         WebSocketServerProtocolHandler.forbiddenHttpRequestResponder());
             }

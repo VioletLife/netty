@@ -15,35 +15,38 @@
  */
 package io.netty.handler.ssl;
 
-import io.netty.util.internal.EmptyArrays;
+import io.netty.handler.ssl.ReferenceCountedOpenSslServerContext.ServerContext;
 import org.apache.tomcat.jni.SSL;
-import org.apache.tomcat.jni.SSLContext;
+
+import java.io.File;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
-import javax.net.ssl.X509ExtendedTrustManager;
-import javax.net.ssl.X509TrustManager;
-import java.io.File;
-import java.security.KeyStore;
-import java.security.cert.X509Certificate;
 
-import static io.netty.util.internal.ObjectUtil.*;
+import static io.netty.handler.ssl.ReferenceCountedOpenSslServerContext.newSessionContext;
 
 /**
  * A server-side {@link SslContext} which uses OpenSSL's SSL/TLS implementation.
+ * <p>This class will use a finalizer to ensure native resources are automatically cleaned up. To avoid finalizers
+ * and manually release the native memory see {@link ReferenceCountedOpenSslServerContext}.
  */
 public final class OpenSslServerContext extends OpenSslContext {
     private final OpenSslServerSessionContext sessionContext;
+    private final OpenSslKeyMaterialManager keyMaterialManager;
 
     /**
      * Creates a new instance.
      *
      * @param certChainFile an X.509 certificate chain file in PEM format
      * @param keyFile a PKCS#8 private key file in PEM format
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslServerContext(File certChainFile, File keyFile) throws SSLException {
         this(certChainFile, keyFile, null);
     }
@@ -55,16 +58,15 @@ public final class OpenSslServerContext extends OpenSslContext {
      * @param keyFile a PKCS#8 private key file in PEM format
      * @param keyPassword the password of the {@code keyFile}.
      *                    {@code null} if it's not password-protected.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslServerContext(File certChainFile, File keyFile, String keyPassword) throws SSLException {
         this(certChainFile, keyFile, keyPassword, null, IdentityCipherSuiteFilter.INSTANCE,
              ApplicationProtocolConfig.DISABLED, 0, 0);
     }
 
     /**
-     * @deprecated use {@link #OpenSslServerContext(
-     *             File, File, String, Iterable, CipherSuiteFilter, ApplicationProtocolConfig, long, long)}
-     *
      * Creates a new instance.
      *
      * @param certChainFile an X.509 certificate chain file in PEM format
@@ -78,6 +80,7 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslServerContext(
@@ -89,9 +92,6 @@ public final class OpenSslServerContext extends OpenSslContext {
     }
 
     /**
-     * @deprecated Use the constructors that accepts {@link ApplicationProtocolConfig} or
-     *             {@link ApplicationProtocolNegotiator} instead.
-     *
      * Creates a new instance.
      *
      * @param certChainFile an X.509 certificate chain file in PEM format
@@ -106,6 +106,7 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslServerContext(
@@ -130,8 +131,7 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
-     * @deprecated use {@link #OpenSslServerContext(File, TrustManagerFactory, File, File, String, KeyManagerFactory,
-     * Iterable, CipherSuiteFilter, ApplicationProtocolConfig, long, long)}
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslServerContext(
@@ -156,8 +156,7 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
-     * @deprecated use {@link #OpenSslServerContext(File, TrustManagerFactory, File, File, String, KeyManagerFactory,
-     * Iterable, CipherSuiteFilter, ApplicationProtocolConfig, long, long)}
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslServerContext(
@@ -183,7 +182,9 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslServerContext(
             File certChainFile, File keyFile, String keyPassword,
             Iterable<String> ciphers, CipherSuiteFilter cipherFilter, ApplicationProtocolConfig apn,
@@ -195,12 +196,13 @@ public final class OpenSslServerContext extends OpenSslContext {
     /**
      * Creates a new instance.
      *
-     * @param trustCertChainFile an X.509 certificate chain file in PEM format.
-     *                      This provides the certificate chains used for mutual authentication.
+     * @param trustCertCollectionFile an X.509 certificate collection file in PEM format.
+     *                      This provides the certificate collection used for mutual authentication.
      *                      {@code null} to use the system default
      * @param trustManagerFactory the {@link TrustManagerFactory} that provides the {@link TrustManager}s
      *                            that verifies the certificates sent from clients.
-     *                            {@code null} to use the default or the results of parsing {@code trustCertChainFile}.
+     *                            {@code null} to use the default or the results of parsing
+     *                            {@code trustCertCollectionFile}.
      * @param keyCertChainFile an X.509 certificate chain file in PEM format
      * @param keyFile a PKCS#8 private key file in PEM format
      * @param keyPassword the password of the {@code keyFile}.
@@ -218,13 +220,15 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslServerContext(
-            File trustCertChainFile, TrustManagerFactory trustManagerFactory,
+            File trustCertCollectionFile, TrustManagerFactory trustManagerFactory,
             File keyCertChainFile, File keyFile, String keyPassword, KeyManagerFactory keyManagerFactory,
             Iterable<String> ciphers, CipherSuiteFilter cipherFilter, ApplicationProtocolConfig config,
             long sessionCacheSize, long sessionTimeout) throws SSLException {
-        this(trustCertChainFile, trustManagerFactory, keyCertChainFile, keyFile, keyPassword, keyManagerFactory,
+        this(trustCertCollectionFile, trustManagerFactory, keyCertChainFile, keyFile, keyPassword, keyManagerFactory,
              ciphers, cipherFilter, toNegotiator(config), sessionCacheSize, sessionTimeout);
     }
 
@@ -243,6 +247,7 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
     @Deprecated
     public OpenSslServerContext(File certChainFile, File keyFile, String keyPassword,
@@ -268,8 +273,7 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
-     * @deprecated use {@link #OpenSslServerContext(File, TrustManagerFactory, File, File, String, KeyManagerFactory,
-     * Iterable, CipherSuiteFilter, OpenSslApplicationProtocolNegotiator, long, long)}
+     * @deprecated use {@link SslContextBuilder}}
      */
     @Deprecated
     public OpenSslServerContext(
@@ -284,12 +288,13 @@ public final class OpenSslServerContext extends OpenSslContext {
      * Creates a new instance.
      *
      *
-     * @param trustCertChainFile an X.509 certificate chain file in PEM format.
-     *                      This provides the certificate chains used for mutual authentication.
+     * @param trustCertCollectionFile an X.509 certificate collection file in PEM format.
+     *                      This provides the certificate collection used for mutual authentication.
      *                      {@code null} to use the system default
      * @param trustManagerFactory the {@link TrustManagerFactory} that provides the {@link TrustManager}s
      *                            that verifies the certificates sent from clients.
-     *                            {@code null} to use the default or the results of parsing {@code trustCertChainFile}.
+     *                            {@code null} to use the default or the results of parsing
+     *                            {@code trustCertCollectionFile}.
      * @param keyCertChainFile an X.509 certificate chain file in PEM format
      * @param keyFile a PKCS#8 private key file in PEM format
      * @param keyPassword the password of the {@code keyFile}.
@@ -307,106 +312,48 @@ public final class OpenSslServerContext extends OpenSslContext {
      *                         {@code 0} to use the default value.
      * @param sessionTimeout the timeout for the cached SSL session objects, in seconds.
      *                       {@code 0} to use the default value.
+     * @deprecated use {@link SslContextBuilder}
      */
+    @Deprecated
     public OpenSslServerContext(
-            File trustCertChainFile, TrustManagerFactory trustManagerFactory,
+            File trustCertCollectionFile, TrustManagerFactory trustManagerFactory,
             File keyCertChainFile, File keyFile, String keyPassword, KeyManagerFactory keyManagerFactory,
             Iterable<String> ciphers, CipherSuiteFilter cipherFilter, OpenSslApplicationProtocolNegotiator apn,
             long sessionCacheSize, long sessionTimeout) throws SSLException {
-        super(ciphers, cipherFilter, apn, sessionCacheSize, sessionTimeout, SSL.SSL_MODE_SERVER);
-        OpenSsl.ensureAvailability();
+        this(toX509CertificatesInternal(trustCertCollectionFile), trustManagerFactory,
+                toX509CertificatesInternal(keyCertChainFile), toPrivateKeyInternal(keyFile, keyPassword),
+                keyPassword, keyManagerFactory, ciphers, cipherFilter,
+                apn, sessionCacheSize, sessionTimeout, ClientAuth.NONE, false);
+    }
 
-        checkNotNull(keyCertChainFile, "keyCertChainFile");
-        if (!keyCertChainFile.isFile()) {
-            throw new IllegalArgumentException("keyCertChainFile is not a file: " + keyCertChainFile);
-        }
-        checkNotNull(keyFile, "keyFile");
-        if (!keyFile.isFile()) {
-            throw new IllegalArgumentException("keyFile is not a file: " + keyFile);
-        }
-        if (keyPassword == null) {
-            keyPassword = "";
-        }
+    OpenSslServerContext(
+            X509Certificate[] trustCertCollection, TrustManagerFactory trustManagerFactory,
+            X509Certificate[] keyCertChain, PrivateKey key, String keyPassword, KeyManagerFactory keyManagerFactory,
+            Iterable<String> ciphers, CipherSuiteFilter cipherFilter, ApplicationProtocolConfig apn,
+            long sessionCacheSize, long sessionTimeout, ClientAuth clientAuth, boolean startTls) throws SSLException {
+        this(trustCertCollection, trustManagerFactory, keyCertChain, key, keyPassword, keyManagerFactory, ciphers,
+                cipherFilter, toNegotiator(apn), sessionCacheSize, sessionTimeout, clientAuth, startTls);
+    }
 
+    @SuppressWarnings("deprecation")
+    private OpenSslServerContext(
+            X509Certificate[] trustCertCollection, TrustManagerFactory trustManagerFactory,
+            X509Certificate[] keyCertChain, PrivateKey key, String keyPassword, KeyManagerFactory keyManagerFactory,
+            Iterable<String> ciphers, CipherSuiteFilter cipherFilter, OpenSslApplicationProtocolNegotiator apn,
+            long sessionCacheSize, long sessionTimeout, ClientAuth clientAuth, boolean startTls) throws SSLException {
+        super(ciphers, cipherFilter, apn, sessionCacheSize, sessionTimeout, SSL.SSL_MODE_SERVER, keyCertChain,
+                clientAuth, startTls);
         // Create a new SSL_CTX and configure it.
         boolean success = false;
         try {
-            synchronized (OpenSslContext.class) {
-                /* Set certificate verification policy. */
-                SSLContext.setVerify(ctx, SSL.SSL_CVERIFY_NONE, VERIFY_DEPTH);
-
-                /* Load the certificate chain. We must skip the first cert when server mode */
-                if (!SSLContext.setCertificateChainFile(ctx, keyCertChainFile.getPath(), true)) {
-                    long error = SSL.getLastErrorNumber();
-                    if (OpenSsl.isError(error)) {
-                        String err = SSL.getErrorString(error);
-                        throw new SSLException(
-                                "failed to set certificate chain: " + keyCertChainFile + " (" + err + ')');
-                    }
-                }
-
-                /* Load the certificate file and private key. */
-                try {
-                    if (!SSLContext.setCertificate(
-                            ctx, keyCertChainFile.getPath(), keyFile.getPath(), keyPassword, SSL.SSL_AIDX_RSA)) {
-                        long error = SSL.getLastErrorNumber();
-                        if (OpenSsl.isError(error)) {
-                            String err = SSL.getErrorString(error);
-                            throw new SSLException("failed to set certificate: " +
-                                                   keyCertChainFile + " and " + keyFile + " (" + err + ')');
-                        }
-                    }
-                } catch (SSLException e) {
-                    throw e;
-                } catch (Exception e) {
-                    throw new SSLException("failed to set certificate: " + keyCertChainFile + " and " + keyFile, e);
-                }
-                try {
-                    if (trustManagerFactory == null) {
-                        // Mimic the way SSLContext.getInstance(KeyManager[], null, null) works
-                        trustManagerFactory = TrustManagerFactory.getInstance(
-                                TrustManagerFactory.getDefaultAlgorithm());
-                    }
-                    if (trustCertChainFile != null) {
-                        trustManagerFactory = buildTrustManagerFactory(trustCertChainFile, trustManagerFactory);
-                    } else {
-                        char[] keyPasswordChars =
-                                keyPassword == null ? EmptyArrays.EMPTY_CHARS : keyPassword.toCharArray();
-
-                        KeyStore ks = buildKeyStore(keyCertChainFile, keyFile, keyPasswordChars);
-                        trustManagerFactory.init(ks);
-                    }
-
-                    final X509TrustManager manager = chooseTrustManager(trustManagerFactory.getTrustManagers());
-
-                    // Use this to prevent an error when running on java < 7
-                    if (useExtendedTrustManager(manager)) {
-                        final X509ExtendedTrustManager extendedManager = (X509ExtendedTrustManager) manager;
-                        SSLContext.setCertVerifyCallback(ctx, new AbstractCertificateVerifier() {
-                            @Override
-                            void verify(OpenSslEngine engine, X509Certificate[] peerCerts, String auth)
-                                    throws Exception {
-                                extendedManager.checkClientTrusted(peerCerts, auth, engine);
-                            }
-                        });
-                    } else {
-                        SSLContext.setCertVerifyCallback(ctx, new AbstractCertificateVerifier() {
-                            @Override
-                            void verify(OpenSslEngine engine, X509Certificate[] peerCerts, String auth)
-                                    throws Exception {
-                                manager.checkClientTrusted(peerCerts, auth);
-                            }
-                        });
-                    }
-                } catch (Exception e) {
-                    throw new SSLException("unable to setup trustmanager", e);
-                }
-            }
-            sessionContext = new OpenSslServerSessionContext(ctx);
+            ServerContext context = newSessionContext(this, ctx, engineMap, trustCertCollection, trustManagerFactory,
+                                                      keyCertChain, key, keyPassword, keyManagerFactory);
+            sessionContext = context.sessionContext;
+            keyMaterialManager = context.keyMaterialManager;
             success = true;
         } finally {
             if (!success) {
-                destroy();
+                release();
             }
         }
     }
@@ -414,5 +361,10 @@ public final class OpenSslServerContext extends OpenSslContext {
     @Override
     public OpenSslServerSessionContext sessionContext() {
         return sessionContext;
+    }
+
+    @Override
+    OpenSslKeyMaterialManager keyMaterialManager() {
+        return keyMaterialManager;
     }
 }

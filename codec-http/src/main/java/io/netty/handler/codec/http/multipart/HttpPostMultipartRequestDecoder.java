@@ -30,10 +30,12 @@ import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder.ErrorDataDec
 import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder.MultiPartStatus;
 import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder.NotEnoughDataDecoderException;
 import io.netty.util.CharsetUtil;
+import io.netty.util.internal.InternalThreadLocalMap;
 import io.netty.util.internal.StringUtil;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.UnsupportedCharsetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +50,7 @@ import static io.netty.buffer.Unpooled.*;
  *
  */
 public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequestDecoder {
+
     /**
      * Factory used to create InterfaceHttpData
      */
@@ -506,6 +509,8 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                     localCharset = Charset.forName(charsetAttribute.getValue());
                 } catch (IOException e) {
                     throw new ErrorDataDecoderException(e);
+                } catch (UnsupportedCharsetException e) {
+                    throw new ErrorDataDecoderException(e);
                 }
             }
             Attribute nameAttribute = currentFieldAttributes.get(HttpHeaderValues.NAME);
@@ -688,18 +693,18 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                 return null;
             }
             String[] contents = splitMultipartHeader(newline);
-            if (HttpHeaderNames.CONTENT_DISPOSITION.equalsIgnoreCase(contents[0])) {
+            if (HttpHeaderNames.CONTENT_DISPOSITION.contentEqualsIgnoreCase(contents[0])) {
                 boolean checkSecondArg;
                 if (currentStatus == MultiPartStatus.DISPOSITION) {
-                    checkSecondArg = HttpHeaderValues.FORM_DATA.equalsIgnoreCase(contents[1]);
+                    checkSecondArg = HttpHeaderValues.FORM_DATA.contentEqualsIgnoreCase(contents[1]);
                 } else {
-                    checkSecondArg = HttpHeaderValues.ATTACHMENT.equalsIgnoreCase(contents[1])
-                            || HttpHeaderValues.FILE.equalsIgnoreCase(contents[1]);
+                    checkSecondArg = HttpHeaderValues.ATTACHMENT.contentEqualsIgnoreCase(contents[1])
+                            || HttpHeaderValues.FILE.contentEqualsIgnoreCase(contents[1]);
                 }
                 if (checkSecondArg) {
                     // read next values and store them in the map as Attribute
                     for (int i = 2; i < contents.length; i++) {
-                        String[] values = StringUtil.split(contents[i], '=', 2);
+                        String[] values = contents[i].split("=", 2);
                         Attribute attribute;
                         try {
                             String name = cleanString(values[0]);
@@ -722,7 +727,7 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                         currentFieldAttributes.put(attribute.getName(), attribute);
                     }
                 }
-            } else if (HttpHeaderNames.CONTENT_TRANSFER_ENCODING.equalsIgnoreCase(contents[0])) {
+            } else if (HttpHeaderNames.CONTENT_TRANSFER_ENCODING.contentEqualsIgnoreCase(contents[0])) {
                 Attribute attribute;
                 try {
                     attribute = factory.createAttribute(request, HttpHeaderNames.CONTENT_TRANSFER_ENCODING.toString(),
@@ -732,8 +737,9 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                 } catch (IllegalArgumentException e) {
                     throw new ErrorDataDecoderException(e);
                 }
+
                 currentFieldAttributes.put(HttpHeaderNames.CONTENT_TRANSFER_ENCODING, attribute);
-            } else if (HttpHeaderNames.CONTENT_LENGTH.equalsIgnoreCase(contents[0])) {
+            } else if (HttpHeaderNames.CONTENT_LENGTH.contentEqualsIgnoreCase(contents[0])) {
                 Attribute attribute;
                 try {
                     attribute = factory.createAttribute(request, HttpHeaderNames.CONTENT_LENGTH.toString(),
@@ -743,10 +749,11 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                 } catch (IllegalArgumentException e) {
                     throw new ErrorDataDecoderException(e);
                 }
+
                 currentFieldAttributes.put(HttpHeaderNames.CONTENT_LENGTH, attribute);
-            } else if (HttpHeaderNames.CONTENT_TYPE.equalsIgnoreCase(contents[0])) {
+            } else if (HttpHeaderNames.CONTENT_TYPE.contentEqualsIgnoreCase(contents[0])) {
                 // Take care of possible "multipart/mixed"
-                if (HttpHeaderValues.MULTIPART_MIXED.equalsIgnoreCase(contents[1])) {
+                if (HttpHeaderValues.MULTIPART_MIXED.contentEqualsIgnoreCase(contents[1])) {
                     if (currentStatus == MultiPartStatus.DISPOSITION) {
                         String values = StringUtil.substringAfter(contents[2], '=');
                         multipartMixedBoundary = "--" + values;
@@ -854,15 +861,14 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                 localCharset = Charset.forName(charsetAttribute.getValue());
             } catch (IOException e) {
                 throw new ErrorDataDecoderException(e);
+            } catch (UnsupportedCharsetException e) {
+                throw new ErrorDataDecoderException(e);
             }
         }
         if (currentFileUpload == null) {
             Attribute filenameAttribute = currentFieldAttributes.get(HttpHeaderValues.FILENAME);
             Attribute nameAttribute = currentFieldAttributes.get(HttpHeaderValues.NAME);
             Attribute contentTypeAttribute = currentFieldAttributes.get(HttpHeaderNames.CONTENT_TYPE);
-            if (contentTypeAttribute == null) {
-                throw new ErrorDataDecoderException("Content-Type is absent but required");
-            }
             Attribute lengthAttribute = currentFieldAttributes.get(HttpHeaderNames.CONTENT_LENGTH);
             long size;
             try {
@@ -873,9 +879,15 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
                 size = 0;
             }
             try {
+                String contentType;
+                if (contentTypeAttribute != null) {
+                    contentType = contentTypeAttribute.getValue();
+                } else {
+                    contentType = HttpPostBodyUtil.DEFAULT_BINARY_CONTENT_TYPE;
+                }
                 currentFileUpload = factory.createFileUpload(request,
                         cleanString(nameAttribute.getValue()), cleanString(filenameAttribute.getValue()),
-                        contentTypeAttribute.getValue(), mechanism.value(), localCharset,
+                        contentType, mechanism.value(), localCharset,
                         size);
             } catch (NullPointerException e) {
                 throw new ErrorDataDecoderException(e);
@@ -1732,15 +1744,15 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
         for (int i = 0; i < field.length(); i++) {
             char nextChar = field.charAt(i);
             if (nextChar == HttpConstants.COLON) {
-                sb.append(HttpConstants.SP);
+                sb.append(HttpConstants.SP_CHAR);
             } else if (nextChar == HttpConstants.COMMA) {
-                sb.append(HttpConstants.SP);
+                sb.append(HttpConstants.SP_CHAR);
             } else if (nextChar == HttpConstants.EQUALS) {
-                sb.append(HttpConstants.SP);
+                sb.append(HttpConstants.SP_CHAR);
             } else if (nextChar == HttpConstants.SEMICOLON) {
-                sb.append(HttpConstants.SP);
+                sb.append(HttpConstants.SP_CHAR);
             } else if (nextChar == HttpConstants.HT) {
-                sb.append(HttpConstants.SP);
+                sb.append(HttpConstants.SP_CHAR);
             } else if (nextChar == HttpConstants.DOUBLE_QUOTE) {
                 // nothing added, just removes it
             } else {
@@ -1813,7 +1825,7 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
         if (svalue.indexOf(';') >= 0) {
             values = splitMultipartHeaderValues(svalue);
         } else {
-            values = StringUtil.split(svalue, ',');
+            values = svalue.split(",");
         }
         for (String value : values) {
             headers.add(value.trim());
@@ -1830,7 +1842,7 @@ public class HttpPostMultipartRequestDecoder implements InterfaceHttpPostRequest
      * @return an array of String where values that were separated by ';' or ','
      */
     private static String[] splitMultipartHeaderValues(String svalue) {
-        List<String> values = new ArrayList<String>(1);
+        List<String> values = InternalThreadLocalMap.get().arrayList(1);
         boolean inQuote = false;
         boolean escapeNext = false;
         int start = 0;

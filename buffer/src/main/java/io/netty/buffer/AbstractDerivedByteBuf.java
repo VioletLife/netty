@@ -21,7 +21,10 @@ import java.nio.ByteBuffer;
 /**
  * Abstract base class for {@link ByteBuf} implementations that wrap another
  * {@link ByteBuf}.
+ *
+ * @deprecated Do not use.
  */
+@Deprecated
 public abstract class AbstractDerivedByteBuf extends AbstractByteBuf {
 
     protected AbstractDerivedByteBuf(int maxCapacity) {
@@ -59,20 +62,17 @@ public abstract class AbstractDerivedByteBuf extends AbstractByteBuf {
 
     @Override
     public final boolean release() {
-        if (unwrap().release()) {
-            deallocate();
-            return true;
-        }
-        return false;
+        return unwrap().release();
     }
 
     @Override
     public final boolean release(int decrement) {
-        if (unwrap().release(decrement)) {
-            deallocate();
-            return true;
-        }
-        return false;
+        return unwrap().release(decrement);
+    }
+
+    @Override
+    public boolean isReadOnly() {
+        return unwrap().isReadOnly();
     }
 
     @Override
@@ -84,9 +84,4 @@ public abstract class AbstractDerivedByteBuf extends AbstractByteBuf {
     public ByteBuffer nioBuffer(int index, int length) {
         return unwrap().nioBuffer(index, length);
     }
-
-    /**
-     * Called when the wrapped {@link ByteBuf} was released due calling of {@link #release()} or {@link #release(int)}.
-     */
-    protected void deallocate() { }
 }

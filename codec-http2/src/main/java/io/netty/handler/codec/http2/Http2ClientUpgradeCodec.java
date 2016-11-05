@@ -14,18 +14,6 @@
  */
 package io.netty.handler.codec.http2;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.base64.Base64;
-import io.netty.handler.codec.http.FullHttpResponse;
-import io.netty.handler.codec.http.HttpClientUpgradeHandler;
-import io.netty.handler.codec.http.HttpRequest;
-import io.netty.util.collection.CharObjectHashMap;
-
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-
 import static io.netty.handler.codec.base64.Base64Dialect.URL_SAFE;
 import static io.netty.handler.codec.http2.Http2CodecUtil.HTTP_UPGRADE_PROTOCOL_NAME;
 import static io.netty.handler.codec.http2.Http2CodecUtil.HTTP_UPGRADE_SETTINGS_HEADER;
@@ -36,12 +24,26 @@ import static io.netty.util.CharsetUtil.UTF_8;
 import static io.netty.util.ReferenceCountUtil.release;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.handler.codec.http.FullHttpResponse;
+import io.netty.handler.codec.http.HttpClientUpgradeHandler;
+import io.netty.handler.codec.http.HttpRequest;
+import io.netty.util.collection.CharObjectMap;
+import io.netty.util.internal.UnstableApi;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Client-side cleartext upgrade codec from HTTP to HTTP/2.
  */
+@UnstableApi
 public class Http2ClientUpgradeCodec implements HttpClientUpgradeHandler.UpgradeCodec {
 
-    private static final List<String> UPGRADE_HEADERS = Collections.singletonList(HTTP_UPGRADE_SETTINGS_HEADER);
+    private static final List<CharSequence> UPGRADE_HEADERS = Collections.singletonList(HTTP_UPGRADE_SETTINGS_HEADER);
 
     private final String handlerName;
     private final Http2ConnectionHandler connectionHandler;
@@ -69,14 +71,14 @@ public class Http2ClientUpgradeCodec implements HttpClientUpgradeHandler.Upgrade
     }
 
     @Override
-    public String protocol() {
+    public CharSequence protocol() {
         return HTTP_UPGRADE_PROTOCOL_NAME;
     }
 
     @Override
-    public Collection<String> setUpgradeHeaders(ChannelHandlerContext ctx,
+    public Collection<CharSequence> setUpgradeHeaders(ChannelHandlerContext ctx,
             HttpRequest upgradeRequest) {
-        String settingsValue = getSettingsHeaderValue(ctx);
+        CharSequence settingsValue = getSettingsHeaderValue(ctx);
         upgradeRequest.headers().set(HTTP_UPGRADE_SETTINGS_HEADER, settingsValue);
         return UPGRADE_HEADERS;
     }
@@ -95,7 +97,7 @@ public class Http2ClientUpgradeCodec implements HttpClientUpgradeHandler.Upgrade
      * Converts the current settings for the handler to the Base64-encoded representation used in
      * the HTTP2-Settings upgrade header.
      */
-    private String getSettingsHeaderValue(ChannelHandlerContext ctx) {
+    private CharSequence getSettingsHeaderValue(ChannelHandlerContext ctx) {
         ByteBuf buf = null;
         ByteBuf encodedBuf = null;
         try {
@@ -105,7 +107,7 @@ public class Http2ClientUpgradeCodec implements HttpClientUpgradeHandler.Upgrade
             // Serialize the payload of the SETTINGS frame.
             int payloadLength = SETTING_ENTRY_LENGTH * settings.size();
             buf = ctx.alloc().buffer(payloadLength);
-            for (CharObjectHashMap.Entry<Long> entry : settings.entries()) {
+            for (CharObjectMap.PrimitiveEntry<Long> entry : settings.entries()) {
                 writeUnsignedShort(entry.key(), buf);
                 writeUnsignedInt(entry.value(), buf);
             }

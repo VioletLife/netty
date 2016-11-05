@@ -15,6 +15,7 @@
  */
 package io.netty.handler.codec.http;
 
+import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 /**
  * The default {@link HttpResponse} implementation.
@@ -27,7 +28,7 @@ public class DefaultHttpResponse extends DefaultHttpMessage implements HttpRespo
      * Creates a new instance.
      *
      * @param version the HTTP version of this response
-     * @param status  the getStatus of this response
+     * @param status  the status of this response
      */
     public DefaultHttpResponse(HttpVersion version, HttpResponseStatus status) {
         this(version, status, true, false);
@@ -37,7 +38,7 @@ public class DefaultHttpResponse extends DefaultHttpMessage implements HttpRespo
      * Creates a new instance.
      *
      * @param version           the HTTP version of this response
-     * @param status            the getStatus of this response
+     * @param status            the status of this response
      * @param validateHeaders   validate the header names and values when adding them to the {@link HttpHeaders}
      */
     public DefaultHttpResponse(HttpVersion version, HttpResponseStatus status, boolean validateHeaders) {
@@ -48,18 +49,30 @@ public class DefaultHttpResponse extends DefaultHttpMessage implements HttpRespo
      * Creates a new instance.
      *
      * @param version           the HTTP version of this response
-     * @param status            the getStatus of this response
+     * @param status            the status of this response
      * @param validateHeaders   validate the header names and values when adding them to the {@link HttpHeaders}
-     * @param singleHeaderFields  determines if HTTP headers with multiple values should be added as a single
-     *                            field or as multiple header fields.
+     * @param singleFieldHeaders {@code true} to check and enforce that headers with the same name are appended
+     * to the same entry and comma separated.
+     * See <a href="https://tools.ietf.org/html/rfc7230#section-3.2.2">RFC 7230, 3.2.2</a>.
+     * {@code false} to allow multiple header entries with the same name to
+     * coexist.
      */
     public DefaultHttpResponse(HttpVersion version, HttpResponseStatus status, boolean validateHeaders,
-                               boolean singleHeaderFields) {
-        super(version, validateHeaders, singleHeaderFields);
-        if (status == null) {
-            throw new NullPointerException("status");
-        }
-        this.status = status;
+                               boolean singleFieldHeaders) {
+        super(version, validateHeaders, singleFieldHeaders);
+        this.status = checkNotNull(status, "status");
+    }
+
+    /**
+     * Creates a new instance.
+     *
+     * @param version           the HTTP version of this response
+     * @param status            the status of this response
+     * @param headers           the headers for this HTTP Response
+     */
+    public DefaultHttpResponse(HttpVersion version, HttpResponseStatus status, HttpHeaders headers) {
+        super(version, headers);
+        this.status = checkNotNull(status, "status");
     }
 
     @Override

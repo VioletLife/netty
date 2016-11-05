@@ -24,8 +24,16 @@ import io.netty.handler.codec.MessageToByteEncoder;
 import io.netty.util.CharsetUtil;
 import org.junit.Test;
 
-import static org.hamcrest.CoreMatchers.*;
-import static org.junit.Assert.*;
+import static io.netty.handler.codec.http.HttpHeadersTestUtils.of;
+import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 public class HttpContentEncoderTest {
 
@@ -126,7 +134,7 @@ public class HttpContentEncoderTest {
         ch.writeOutbound(new DefaultHttpContent(Unpooled.wrappedBuffer(new byte[3])));
         ch.writeOutbound(new DefaultHttpContent(Unpooled.wrappedBuffer(new byte[2])));
         LastHttpContent content = new DefaultLastHttpContent(Unpooled.wrappedBuffer(new byte[1]));
-        content.trailingHeaders().set("X-Test", "Netty");
+        content.trailingHeaders().set(of("X-Test"), of("Netty"));
         ch.writeOutbound(content);
 
         HttpContent chunk;
@@ -146,7 +154,7 @@ public class HttpContentEncoderTest {
         chunk = ch.readOutbound();
         assertThat(chunk.content().isReadable(), is(false));
         assertThat(chunk, is(instanceOf(LastHttpContent.class)));
-        assertEquals("Netty", ((LastHttpContent) chunk).trailingHeaders().get("X-Test"));
+        assertEquals("Netty", ((LastHttpContent) chunk).trailingHeaders().get(of("X-Test")));
         chunk.release();
 
         assertThat(ch.readOutbound(), is(nullValue()));
@@ -235,7 +243,7 @@ public class HttpContentEncoderTest {
 
         FullHttpResponse res = new DefaultFullHttpResponse(
                 HttpVersion.HTTP_1_1, HttpResponseStatus.OK, Unpooled.EMPTY_BUFFER);
-        res.trailingHeaders().set("X-Test", "Netty");
+        res.trailingHeaders().set(of("X-Test"), of("Netty"));
         ch.writeOutbound(res);
 
         Object o = ch.readOutbound();
@@ -248,7 +256,7 @@ public class HttpContentEncoderTest {
         assertThat(res.headers().get(HttpHeaderNames.CONTENT_ENCODING), is(nullValue()));
         assertThat(res.content().readableBytes(), is(0));
         assertThat(res.content().toString(CharsetUtil.US_ASCII), is(""));
-        assertEquals("Netty", res.trailingHeaders().get("X-Test"));
+        assertEquals("Netty", res.trailingHeaders().get(of("X-Test")));
         assertThat(ch.readOutbound(), is(nullValue()));
     }
 
@@ -325,6 +333,31 @@ public class HttpContentEncoderTest {
         assertThat(chunk, is(instanceOf(LastHttpContent.class)));
         chunk.release();
         assertThat(ch.readOutbound(), is(nullValue()));
+    }
+
+    @Test
+    public void testHttp1_0() throws Exception {
+        EmbeddedChannel ch = new EmbeddedChannel(new TestEncoder());
+        FullHttpRequest req = new DefaultFullHttpRequest(HttpVersion.HTTP_1_0, HttpMethod.GET, "/");
+        assertTrue(ch.writeInbound(req));
+
+        HttpResponse res = new DefaultHttpResponse(HttpVersion.HTTP_1_0, HttpResponseStatus.OK);
+        res.headers().set(HttpHeaderNames.CONTENT_LENGTH, HttpHeaderValues.ZERO);
+        assertTrue(ch.writeOutbound(res));
+        assertTrue(ch.writeOutbound(LastHttpContent.EMPTY_LAST_CONTENT));
+        assertTrue(ch.finish());
+
+        FullHttpRequest request = ch.readInbound();
+        assertTrue(request.release());
+        assertNull(ch.readInbound());
+
+        HttpResponse response = ch.readOutbound();
+        assertSame(res, response);
+
+        LastHttpContent content = ch.readOutbound();
+        assertSame(LastHttpContent.EMPTY_LAST_CONTENT, content);
+        content.release();
+        assertNull(ch.readOutbound());
     }
 
     private static void assertEmptyResponse(EmbeddedChannel ch) {

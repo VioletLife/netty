@@ -16,7 +16,6 @@
 package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufHolder;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -29,49 +28,99 @@ import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.internal.logging.InternalLogger;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 
+import static io.netty.handler.codec.http.HttpHeaderNames.CONTENT_LENGTH;
+import static io.netty.handler.codec.http.HttpUtil.getContentLength;
+
 /**
  * A {@link ChannelHandler} that aggregates an {@link HttpMessage}
  * and its following {@link HttpContent}s into a single {@link FullHttpRequest}
  * or {@link FullHttpResponse} (depending on if it used to handle requests or responses)
  * with no following {@link HttpContent}s.  It is useful when you don't want to take
  * care of HTTP messages whose transfer encoding is 'chunked'.  Insert this
- * handler after {@link HttpObjectDecoder} in the {@link ChannelPipeline}:
- * <pre>
- * {@link ChannelPipeline} p = ...;
- * ...
- * p.addLast("encoder", new {@link HttpResponseEncoder}());
- * p.addLast("decoder", new {@link HttpRequestDecoder}());
- * p.addLast("aggregator", <b>new {@link HttpObjectAggregator}(1048576)</b>);
- * ...
- * p.addLast("handler", new HttpRequestHandler());
- * </pre>
- * Be aware that you need to have the {@link HttpResponseEncoder} or {@link HttpRequestEncoder}
- * before the {@link HttpObjectAggregator} in the {@link ChannelPipeline}.
+ * handler after {@link HttpResponseDecoder} in the {@link ChannelPipeline} if being used to handle
+ * responses, or after {@link HttpRequestDecoder} and {@link HttpResponseEncoder} in the
+ * {@link ChannelPipeline} if being used to handle requests.
+ * <blockquote>
+ *  <pre>
+ *  {@link ChannelPipeline} p = ...;
+ *  ...
+ *  p.addLast("decoder", <b>new {@link HttpRequestDecoder}()</b>);
+ *  p.addLast("encoder", <b>new {@link HttpResponseEncoder}()</b>);
+ *  p.addLast("aggregator", <b>new {@link HttpObjectAggregator}(1048576)</b>);
+ *  ...
+ *  p.addLast("handler", new HttpRequestHandler());
+ *  </pre>
+ * </blockquote>
+ * <p>
+ * For convenience, consider putting a {@link HttpServerCodec} before the {@link HttpObjectAggregator}
+ * as it functions as both a {@link HttpRequestDecoder} and a {@link HttpResponseEncoder}.
+ * </p>
+ * Be aware that {@link HttpObjectAggregator} may end up sending a {@link HttpResponse}:
+ * <table border summary="Possible Responses">
+ *   <tbody>
+ *     <tr>
+ *       <th>Response Status</th>
+ *       <th>Condition When Sent</th>
+ *     </tr>
+ *     <tr>
+ *       <td>100 Continue</td>
+ *       <td>A '100-continue' expectation is received and the 'content-length' doesn't exceed maxContentLength</td>
+ *     </tr>
+ *     <tr>
+ *       <td>417 Expectation Failed</td>
+ *       <td>A '100-continue' expectation is received and the 'content-length' exceeds maxContentLength</td>
+ *     </tr>
+ *     <tr>
+ *       <td>413 Request Entity Too Large</td>
+ *       <td>Either the 'content-length' or the bytes received so far exceed maxContentLength</td>
+ *     </tr>
+ *   </tbody>
+ * </table>
+ *
+ * @see FullHttpRequest
+ * @see FullHttpResponse
+ * @see HttpResponseDecoder
+ * @see HttpServerCodec
  */
 public class HttpObjectAggregator
         extends MessageAggregator<HttpObject, HttpMessage, HttpContent, FullHttpMessage> {
-
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(HttpObjectAggregator.class);
-    private static final FullHttpResponse CONTINUE = new DefaultFullHttpResponse(
-            HttpVersion.HTTP_1_1, HttpResponseStatus.CONTINUE, Unpooled.EMPTY_BUFFER);
+    private static final FullHttpResponse CONTINUE =
+            new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.CONTINUE, Unpooled.EMPTY_BUFFER);
+    private static final FullHttpResponse EXPECTATION_FAILED = new DefaultFullHttpResponse(
+            HttpVersion.HTTP_1_1, HttpResponseStatus.EXPECTATION_FAILED, Unpooled.EMPTY_BUFFER);
     private static final FullHttpResponse TOO_LARGE = new DefaultFullHttpResponse(
             HttpVersion.HTTP_1_1, HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE, Unpooled.EMPTY_BUFFER);
 
     static {
-        TOO_LARGE.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0);
+        EXPECTATION_FAILED.headers().set(CONTENT_LENGTH, 0);
+        TOO_LARGE.headers().set(CONTENT_LENGTH, 0);
+    }
+
+    private final boolean closeOnExpectationFailed;
+
+    /**
+     * Creates a new instance.
+     * @param maxContentLength the maximum length of the aggregated content in bytes.
+     * If the length of the aggregated content exceeds this value,
+     * {@link #handleOversizedMessage(ChannelHandlerContext, HttpMessage)} will be called.
+     */
+    public HttpObjectAggregator(int maxContentLength) {
+        this(maxContentLength, false);
     }
 
     /**
      * Creates a new instance.
-     *
-     * @param maxContentLength
-     *        the maximum length of the aggregated content in bytes.
-     *        If the length of the aggregated content exceeds this value,
-     *        {@link #handleOversizedMessage(ChannelHandlerContext, HttpMessage)}
-     *        will be called.
+     * @param maxContentLength the maximum length of the aggregated content in bytes.
+     * If the length of the aggregated content exceeds this value,
+     * {@link #handleOversizedMessage(ChannelHandlerContext, HttpMessage)} will be called.
+     * @param closeOnExpectationFailed If a 100-continue response is detected but the content length is too large
+     * then {@code true} means close the connection. otherwise the connection will remain open and data will be
+     * consumed and discarded until the next request is received.
      */
-    public HttpObjectAggregator(int maxContentLength) {
+    public HttpObjectAggregator(int maxContentLength, boolean closeOnExpectationFailed) {
         super(maxContentLength);
+        this.closeOnExpectationFailed = closeOnExpectationFailed;
     }
 
     @Override
@@ -95,29 +144,39 @@ public class HttpObjectAggregator
     }
 
     @Override
-    protected boolean hasContentLength(HttpMessage start) throws Exception {
-        return HttpHeaderUtil.isContentLengthSet(start);
+    protected boolean isContentLengthInvalid(HttpMessage start, int maxContentLength) {
+        return getContentLength(start, -1L) > maxContentLength;
     }
 
     @Override
-    protected long contentLength(HttpMessage start) throws Exception {
-        return HttpHeaderUtil.getContentLength(start);
-    }
+    protected Object newContinueResponse(HttpMessage start, int maxContentLength, ChannelPipeline pipeline) {
+        if (HttpUtil.is100ContinueExpected(start)) {
+            if (getContentLength(start, -1L) <= maxContentLength) {
+                return CONTINUE.retainedDuplicate();
+            }
 
-    @Override
-    protected Object newContinueResponse(HttpMessage start) throws Exception {
-        if (HttpHeaderUtil.is100ContinueExpected(start)) {
-            return CONTINUE;
-        } else {
-            return null;
+            pipeline.fireUserEventTriggered(HttpExpectationFailedEvent.INSTANCE);
+            return EXPECTATION_FAILED.retainedDuplicate();
         }
+        return null;
+    }
+
+    @Override
+    protected boolean closeAfterContinueResponse(Object msg) {
+        return closeOnExpectationFailed && ignoreContentAfterContinueResponse(msg);
+    }
+
+    @Override
+    protected boolean ignoreContentAfterContinueResponse(Object msg) {
+        return msg instanceof HttpResponse &&
+               ((HttpResponse) msg).status().code() == HttpResponseStatus.EXPECTATION_FAILED.code();
     }
 
     @Override
     protected FullHttpMessage beginAggregation(HttpMessage start, ByteBuf content) throws Exception {
         assert !(start instanceof FullHttpMessage);
 
-        HttpHeaderUtil.setTransferEncodingChunked(start, false);
+        HttpUtil.setTransferEncodingChunked(start, false);
 
         AggregatedFullHttpMessage ret;
         if (start instanceof HttpRequest) {
@@ -146,9 +205,9 @@ public class HttpObjectAggregator
         // transmitted if a GET would have been used.
         //
         // See rfc2616 14.13 Content-Length
-        if (!HttpHeaderUtil.isContentLengthSet(aggregated)) {
+        if (!HttpUtil.isContentLengthSet(aggregated)) {
             aggregated.headers().set(
-                    HttpHeaderNames.CONTENT_LENGTH,
+                    CONTENT_LENGTH,
                     String.valueOf(aggregated.content().readableBytes()));
         }
     }
@@ -157,7 +216,8 @@ public class HttpObjectAggregator
     protected void handleOversizedMessage(final ChannelHandlerContext ctx, HttpMessage oversized) throws Exception {
         if (oversized instanceof HttpRequest) {
             // send back a 413 and close the connection
-            ChannelFuture future = ctx.writeAndFlush(TOO_LARGE).addListener(new ChannelFutureListener() {
+            ChannelFuture future = ctx.writeAndFlush(TOO_LARGE.retainedDuplicate()).addListener(
+                    new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (!future.isSuccess()) {
@@ -170,7 +230,7 @@ public class HttpObjectAggregator
             // If the client started to send data already, close because it's impossible to recover.
             // If keep-alive is off and 'Expect: 100-continue' is missing, no need to leave the connection open.
             if (oversized instanceof FullHttpMessage ||
-                !HttpHeaderUtil.is100ContinueExpected(oversized) && !HttpHeaderUtil.isKeepAlive(oversized)) {
+                !HttpUtil.is100ContinueExpected(oversized) && !HttpUtil.isKeepAlive(oversized)) {
                 future.addListener(ChannelFutureListener.CLOSE);
             }
 
@@ -188,7 +248,7 @@ public class HttpObjectAggregator
         }
     }
 
-    private abstract static class AggregatedFullHttpMessage implements ByteBufHolder, FullHttpMessage {
+    private abstract static class AggregatedFullHttpMessage implements FullHttpMessage {
         protected final HttpMessage message;
         private final ByteBuf content;
         private HttpHeaders trailingHeaders;
@@ -203,7 +263,7 @@ public class HttpObjectAggregator
         public HttpHeaders trailingHeaders() {
             HttpHeaders trailingHeaders = this.trailingHeaders;
             if (trailingHeaders == null) {
-                return HttpHeaders.EMPTY_HEADERS;
+                return EmptyHttpHeaders.INSTANCE;
             } else {
                 return trailingHeaders;
             }
@@ -298,6 +358,9 @@ public class HttpObjectAggregator
 
         @Override
         public abstract FullHttpMessage duplicate();
+
+        @Override
+        public abstract FullHttpMessage retainedDuplicate();
     }
 
     private static final class AggregatedFullHttpRequest extends AggregatedFullHttpMessage implements FullHttpRequest {
@@ -306,48 +369,27 @@ public class HttpObjectAggregator
             super(request, content, trailingHeaders);
         }
 
-        /**
-         * Copy this object
-         *
-         * @param copyContent
-         * <ul>
-         * <li>{@code true} if this object's {@link #content()} should be used to copy.</li>
-         * <li>{@code false} if {@code newContent} should be used instead.</li>
-         * </ul>
-         * @param newContent
-         * <ul>
-         * <li>if {@code copyContent} is false then this will be used in the copy's content.</li>
-         * <li>if {@code null} then a default buffer of 0 size will be selected</li>
-         * </ul>
-         * @return A copy of this object
-         */
-        private FullHttpRequest copy(boolean copyContent, ByteBuf newContent) {
-            DefaultFullHttpRequest copy = new DefaultFullHttpRequest(
-                    protocolVersion(), method(), uri(),
-                    copyContent ? content().copy() :
-                            newContent == null ? Unpooled.buffer(0) : newContent);
-            copy.headers().set(headers());
-            copy.trailingHeaders().set(trailingHeaders());
-            return copy;
-        }
-
-        @Override
-        public FullHttpRequest copy(ByteBuf newContent) {
-            return copy(false, newContent);
-        }
-
         @Override
         public FullHttpRequest copy() {
-            return copy(true, null);
+            return replace(content().copy());
         }
 
         @Override
         public FullHttpRequest duplicate() {
-            DefaultFullHttpRequest duplicate = new DefaultFullHttpRequest(
-                    getProtocolVersion(), getMethod(), getUri(), content().duplicate());
-            duplicate.headers().set(headers());
-            duplicate.trailingHeaders().set(trailingHeaders());
-            return duplicate;
+            return replace(content().duplicate());
+        }
+
+        @Override
+        public FullHttpRequest retainedDuplicate() {
+            return replace(content().retainedDuplicate());
+        }
+
+        @Override
+        public FullHttpRequest replace(ByteBuf content) {
+            DefaultFullHttpRequest dup = new DefaultFullHttpRequest(protocolVersion(), method(), uri(), content);
+            dup.headers().set(headers());
+            dup.trailingHeaders().set(trailingHeaders());
+            return dup;
         }
 
         @Override
@@ -425,48 +467,27 @@ public class HttpObjectAggregator
             super(message, content, trailingHeaders);
         }
 
-        /**
-         * Copy this object
-         *
-         * @param copyContent
-         * <ul>
-         * <li>{@code true} if this object's {@link #content()} should be used to copy.</li>
-         * <li>{@code false} if {@code newContent} should be used instead.</li>
-         * </ul>
-         * @param newContent
-         * <ul>
-         * <li>if {@code copyContent} is false then this will be used in the copy's content.</li>
-         * <li>if {@code null} then a default buffer of 0 size will be selected</li>
-         * </ul>
-         * @return A copy of this object
-         */
-        private FullHttpResponse copy(boolean copyContent, ByteBuf newContent) {
-            DefaultFullHttpResponse copy = new DefaultFullHttpResponse(
-                    protocolVersion(), status(),
-                    copyContent ? content().copy() :
-                            newContent == null ? Unpooled.buffer(0) : newContent);
-            copy.headers().set(headers());
-            copy.trailingHeaders().set(trailingHeaders());
-            return copy;
-        }
-
-        @Override
-        public FullHttpResponse copy(ByteBuf newContent) {
-            return copy(false, newContent);
-        }
-
         @Override
         public FullHttpResponse copy() {
-            return copy(true, null);
+            return replace(content().copy());
         }
 
         @Override
         public FullHttpResponse duplicate() {
-            DefaultFullHttpResponse duplicate = new DefaultFullHttpResponse(getProtocolVersion(), getStatus(),
-                    content().duplicate());
-            duplicate.headers().set(headers());
-            duplicate.trailingHeaders().set(trailingHeaders());
-            return duplicate;
+            return replace(content().duplicate());
+        }
+
+        @Override
+        public FullHttpResponse retainedDuplicate() {
+            return replace(content().retainedDuplicate());
+        }
+
+        @Override
+        public FullHttpResponse replace(ByteBuf content) {
+            DefaultFullHttpResponse dup = new DefaultFullHttpResponse(getProtocolVersion(), getStatus(), content);
+            dup.headers().set(headers());
+            dup.trailingHeaders().set(trailingHeaders());
+            return dup;
         }
 
         @Override

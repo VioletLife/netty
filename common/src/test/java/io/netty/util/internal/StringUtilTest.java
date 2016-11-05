@@ -17,6 +17,8 @@ package io.netty.util.internal;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+
 import static io.netty.util.internal.StringUtil.*;
 import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
@@ -48,38 +50,97 @@ public class StringUtilTest {
 
     @Test
     public void splitSimple() {
-        assertArrayEquals(new String[] { "foo", "bar" }, split("foo:bar", ':'));
+        assertArrayEquals(new String[] { "foo", "bar" }, "foo:bar".split(":"));
     }
 
     @Test
     public void splitWithTrailingDelimiter() {
-        assertArrayEquals(new String[] { "foo", "bar" }, split("foo,bar,", ','));
+        assertArrayEquals(new String[] { "foo", "bar" }, "foo,bar,".split(","));
     }
 
     @Test
     public void splitWithTrailingDelimiters() {
-        assertArrayEquals(new String[] { "foo", "bar" }, split("foo!bar!!", '!'));
+        assertArrayEquals(new String[] { "foo", "bar" }, "foo!bar!!".split("!"));
+    }
+
+    @Test
+    public void splitWithTrailingDelimitersDot() {
+        assertArrayEquals(new String[] { "foo", "bar" }, "foo.bar..".split("\\."));
+    }
+
+    @Test
+    public void splitWithTrailingDelimitersEq() {
+        assertArrayEquals(new String[] { "foo", "bar" }, "foo=bar==".split("="));
+    }
+
+    @Test
+    public void splitWithTrailingDelimitersSpace() {
+        assertArrayEquals(new String[] { "foo", "bar" }, "foo bar  ".split(" "));
     }
 
     @Test
     public void splitWithConsecutiveDelimiters() {
-        assertArrayEquals(new String[] { "foo", "", "bar" }, split("foo$$bar", '$'));
+        assertArrayEquals(new String[] { "foo", "", "bar" }, "foo$$bar".split("\\$"));
     }
 
     @Test
     public void splitWithDelimiterAtBeginning() {
-        assertArrayEquals(new String[] { "", "foo", "bar" }, split("#foo#bar", '#'));
+        assertArrayEquals(new String[] { "", "foo", "bar" }, "#foo#bar".split("#"));
     }
 
     @Test
     public void splitMaxPart() {
-        assertArrayEquals(new String[] { "foo", "bar:bar2" }, split("foo:bar:bar2", ':', 2));
-        assertArrayEquals(new String[] { "foo", "bar", "bar2" }, split("foo:bar:bar2", ':', 3));
+        assertArrayEquals(new String[] { "foo", "bar:bar2" }, "foo:bar:bar2".split(":", 2));
+        assertArrayEquals(new String[] { "foo", "bar", "bar2" }, "foo:bar:bar2".split(":", 3));
     }
 
     @Test
     public void substringAfterTest() {
         assertEquals("bar:bar2", substringAfter("foo:bar:bar2", ':'));
+    }
+
+    @Test
+    public void commonSuffixOfLengthTest() {
+        // negative length suffixes are never common
+        checkNotCommonSuffix("abc", "abc", -1);
+
+        // null has no suffix
+        checkNotCommonSuffix("abc", null, 0);
+        checkNotCommonSuffix(null, null, 0);
+
+        // any non-null string has 0-length suffix
+        checkCommonSuffix("abc", "xx", 0);
+
+        checkCommonSuffix("abc", "abc", 0);
+        checkCommonSuffix("abc", "abc", 1);
+        checkCommonSuffix("abc", "abc", 2);
+        checkCommonSuffix("abc", "abc", 3);
+        checkNotCommonSuffix("abc", "abc", 4);
+
+        checkCommonSuffix("abcd", "cd", 1);
+        checkCommonSuffix("abcd", "cd", 2);
+        checkNotCommonSuffix("abcd", "cd", 3);
+
+        checkCommonSuffix("abcd", "axcd", 1);
+        checkCommonSuffix("abcd", "axcd", 2);
+        checkNotCommonSuffix("abcd", "axcd", 3);
+
+        checkNotCommonSuffix("abcx", "abcy", 1);
+    }
+
+    private static void checkNotCommonSuffix(String s, String p, int len) {
+        assertFalse(checkCommonSuffixSymmetric(s, p, len));
+    }
+
+    private static void checkCommonSuffix(String s, String p, int len) {
+        assertTrue(checkCommonSuffixSymmetric(s, p, len));
+    }
+
+    private static boolean checkCommonSuffixSymmetric(String s, String p, int len) {
+        boolean sp = commonSuffixOfLength(s, p, len);
+        boolean ps = commonSuffixOfLength(p, s, len);
+        assertEquals(sp, ps);
+        return sp;
     }
 
     @Test (expected = NullPointerException.class)
@@ -278,6 +339,102 @@ public class StringUtilTest {
     }
 
     @Test
+    public void testUnescapeCsv() {
+        assertEquals("", unescapeCsv(""));
+        assertEquals("\"", unescapeCsv("\"\"\"\""));
+        assertEquals("\"\"", unescapeCsv("\"\"\"\"\"\""));
+        assertEquals("\"\"\"", unescapeCsv("\"\"\"\"\"\"\"\""));
+        assertEquals("\"netty\"", unescapeCsv("\"\"\"netty\"\"\""));
+        assertEquals("netty", unescapeCsv("netty"));
+        assertEquals("netty", unescapeCsv("\"netty\""));
+        assertEquals("\r", unescapeCsv("\"\r\""));
+        assertEquals("\n", unescapeCsv("\"\n\""));
+        assertEquals("hello,netty", unescapeCsv("\"hello,netty\""));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvWithSingleQuote() {
+        unescapeCsv("\"");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvWithOddQuote() {
+        unescapeCsv("\"\"\"");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvWithCRAndWithoutQuote() {
+        unescapeCsv("\r");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvWithLFAndWithoutQuote() {
+        unescapeCsv("\n");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvWithCommaAndWithoutQuote() {
+        unescapeCsv(",");
+    }
+
+    @Test
+    public void escapeCsvAndUnEscapeCsv() {
+        assertEscapeCsvAndUnEscapeCsv("");
+        assertEscapeCsvAndUnEscapeCsv("netty");
+        assertEscapeCsvAndUnEscapeCsv("hello,netty");
+        assertEscapeCsvAndUnEscapeCsv("hello,\"netty\"");
+        assertEscapeCsvAndUnEscapeCsv("\"");
+        assertEscapeCsvAndUnEscapeCsv(",");
+        assertEscapeCsvAndUnEscapeCsv("\r");
+        assertEscapeCsvAndUnEscapeCsv("\n");
+    }
+
+    private void assertEscapeCsvAndUnEscapeCsv(String value) {
+        assertEquals(value, unescapeCsv(StringUtil.escapeCsv(value)));
+    }
+
+    @Test
+    public void testUnescapeCsvFields() {
+        assertEquals(Arrays.asList(""), unescapeCsvFields(""));
+        assertEquals(Arrays.asList("", ""), unescapeCsvFields(","));
+        assertEquals(Arrays.asList("a", ""), unescapeCsvFields("a,"));
+        assertEquals(Arrays.asList("", "a"), unescapeCsvFields(",a"));
+        assertEquals(Arrays.asList("\""), unescapeCsvFields("\"\"\"\""));
+        assertEquals(Arrays.asList("\"", "\""), unescapeCsvFields("\"\"\"\",\"\"\"\""));
+        assertEquals(Arrays.asList("netty"), unescapeCsvFields("netty"));
+        assertEquals(Arrays.asList("hello", "netty"), unescapeCsvFields("hello,netty"));
+        assertEquals(Arrays.asList("hello,netty"), unescapeCsvFields("\"hello,netty\""));
+        assertEquals(Arrays.asList("hello", "netty"), unescapeCsvFields("\"hello\",\"netty\""));
+        assertEquals(Arrays.asList("a\"b", "c\"d"), unescapeCsvFields("\"a\"\"b\",\"c\"\"d\""));
+        assertEquals(Arrays.asList("a\rb", "c\nd"), unescapeCsvFields("\"a\rb\",\"c\nd\""));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvFieldsWithCRWithoutQuote() {
+        unescapeCsvFields("a,\r");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvFieldsWithLFWithoutQuote() {
+        unescapeCsvFields("a,\r");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvFieldsWithQuote() {
+        unescapeCsvFields("a,\"");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvFieldsWithQuote2() {
+        unescapeCsvFields("\",a");
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void unescapeCsvFieldsWithQuote3() {
+        unescapeCsvFields("a\"b,a");
+    }
+
+    @Test
     public void testSimpleClassName() throws Exception {
         testSimpleClassName(String.class);
     }
@@ -299,4 +456,13 @@ public class StringUtilTest {
     }
 
     private static final class TestClass { }
+
+    @Test
+    public void testEndsWith() {
+        assertFalse(StringUtil.endsWith("", 'u'));
+        assertTrue(StringUtil.endsWith("u", 'u'));
+        assertTrue(StringUtil.endsWith("-u", 'u'));
+        assertFalse(StringUtil.endsWith("-", 'u'));
+        assertFalse(StringUtil.endsWith("u-", 'u'));
+    }
 }

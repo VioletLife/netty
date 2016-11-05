@@ -15,6 +15,7 @@
  */
 package io.netty.buffer;
 
+import io.netty.util.ReferenceCountUtil;
 import org.junit.Test;
 
 import java.nio.ByteBuffer;
@@ -46,12 +47,9 @@ public abstract class AbstractCompositeByteBufTest extends AbstractByteBufTest {
         this.order = order;
     }
 
-    private List<ByteBuf> buffers;
-    private ByteBuf buffer;
-
     @Override
     protected ByteBuf newBuffer(int length) {
-        buffers = new ArrayList<ByteBuf>();
+        List<ByteBuf> buffers = new ArrayList<ByteBuf>();
         for (int i = 0; i < length + 45; i += 45) {
             buffers.add(EMPTY_BUFFER);
             buffers.add(wrappedBuffer(new byte[1]));
@@ -74,7 +72,7 @@ public abstract class AbstractCompositeByteBufTest extends AbstractByteBufTest {
             buffers.add(EMPTY_BUFFER);
         }
 
-        buffer = wrappedBuffer(Integer.MAX_VALUE, buffers.toArray(new ByteBuf[buffers.size()])).order(order);
+        ByteBuf buffer = wrappedBuffer(Integer.MAX_VALUE, buffers.toArray(new ByteBuf[buffers.size()])).order(order);
 
         // Truncate to the requested capacity.
         buffer.capacity(length);
@@ -84,11 +82,6 @@ public abstract class AbstractCompositeByteBufTest extends AbstractByteBufTest {
         assertFalse(buffer.isWritable());
         buffer.writerIndex(0);
         return buffer;
-    }
-
-    @Override
-    protected ByteBuf[] components() {
-        return buffers.toArray(new ByteBuf[buffers.size()]);
     }
 
     // Composite buffer does not waste bandwidth on discardReadBytes, but
@@ -464,7 +457,7 @@ public abstract class AbstractCompositeByteBufTest extends AbstractByteBufTest {
     public void testComponentMustBeSlice() {
         CompositeByteBuf buf = releaseLater(compositeBuffer());
         buf.addComponent(buffer(4).setIndex(1, 3));
-        assertThat(buf.component(0), is(instanceOf(SlicedByteBuf.class)));
+        assertThat(buf.component(0), is(instanceOf(AbstractUnpooledSlicedByteBuf.class)));
         assertThat(buf.component(0).capacity(), is(2));
         assertThat(buf.component(0).maxCapacity(), is(2));
     }
@@ -854,11 +847,11 @@ public abstract class AbstractCompositeByteBufTest extends AbstractByteBufTest {
     public void testAddEmptyBufferInMiddle() {
         CompositeByteBuf cbuf = compositeBuffer();
         ByteBuf buf1 = buffer().writeByte((byte) 1);
-        cbuf.addComponent(buf1).writerIndex(cbuf.writerIndex() + buf1.readableBytes());
+        cbuf.addComponent(true, buf1);
         ByteBuf buf2 = EMPTY_BUFFER;
-        cbuf.addComponent(buf2).writerIndex(cbuf.writerIndex() + buf2.readableBytes());
+        cbuf.addComponent(true, buf2);
         ByteBuf buf3 = buffer().writeByte((byte) 2);
-        cbuf.addComponent(buf3).writerIndex(cbuf.writerIndex() + buf3.readableBytes());
+        cbuf.addComponent(true, buf3);
 
         assertEquals(2, cbuf.readableBytes());
         assertEquals((byte) 1, cbuf.readByte());
@@ -938,4 +931,34 @@ public abstract class AbstractCompositeByteBufTest extends AbstractByteBufTest {
             cbuf.release();
         }
     }
+
+    @Test
+    public void testReleasesItsComponents() {
+        ByteBuf buffer = PooledByteBufAllocator.DEFAULT.buffer(); // 1
+
+        buffer.writeBytes(new byte[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+
+        ByteBuf s1 = buffer.readSlice(2).retain(); // 2
+        ByteBuf s2 = s1.readSlice(2).retain(); // 3
+        ByteBuf s3 = s2.readSlice(2).retain(); // 4
+        ByteBuf s4 = s3.readSlice(2).retain(); // 5
+
+        ByteBuf composite = PooledByteBufAllocator.DEFAULT.compositeBuffer()
+            .addComponent(s1)
+            .addComponents(s2, s3, s4)
+            .order(ByteOrder.LITTLE_ENDIAN);
+
+        assertEquals(composite.refCnt(), 1);
+        assertEquals(buffer.refCnt(), 5);
+
+        // releasing composite should release the 4 components
+        ReferenceCountUtil.release(composite);
+        assertEquals(composite.refCnt(), 0);
+        assertEquals(buffer.refCnt(), 1);
+
+        // last remaining ref to buffer
+        ReferenceCountUtil.release(buffer);
+        assertEquals(buffer.refCnt(), 0);
+    }
+
 }

@@ -23,10 +23,15 @@ import io.netty.util.CharsetUtil;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
 
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map.Entry;
 
-import static io.netty.buffer.Unpooled.*;
-import static io.netty.handler.codec.http.HttpConstants.*;
+import static io.netty.buffer.Unpooled.EMPTY_BUFFER;
+import static io.netty.buffer.Unpooled.directBuffer;
+import static io.netty.buffer.Unpooled.unreleasableBuffer;
+import static io.netty.handler.codec.http.HttpConstants.CR;
+import static io.netty.handler.codec.http.HttpConstants.LF;
 
 /**
  * Encodes an {@link HttpMessage} or an {@link HttpContent} into
@@ -42,7 +47,7 @@ import static io.netty.handler.codec.http.HttpConstants.*;
  * implement all abstract methods properly.
  */
 public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageToMessageEncoder<Object> {
-    private static final byte[] CRLF = { CR, LF };
+    static final byte[] CRLF = { CR, LF };
     private static final byte[] ZERO_CRLF = { '0', CR, LF };
     private static final byte[] ZERO_CRLF_CRLF = { '0', CR, LF, CR, LF };
     private static final ByteBuf CRLF_BUF = unreleasableBuffer(directBuffer(CRLF.length).writeBytes(CRLF));
@@ -72,7 +77,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
             encodeInitialLine(buf, m);
             encodeHeaders(m.headers(), buf);
             buf.writeBytes(CRLF);
-            state = HttpHeaderUtil.isTransferEncodingChunked(m) ? ST_CONTENT_CHUNK : ST_CONTENT_NON_CHUNK;
+            state = HttpUtil.isTransferEncodingChunked(m) ? ST_CONTENT_CHUNK : ST_CONTENT_NON_CHUNK;
         }
 
         // Bypass the encoder in case of an empty buffer, so that the following idiom works:
@@ -137,7 +142,11 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
      * Encode the {@link HttpHeaders} into a {@link ByteBuf}.
      */
     protected void encodeHeaders(HttpHeaders headers, ByteBuf buf) throws Exception {
-        HttpHeaders.encode(headers, buf);
+        Iterator<Entry<CharSequence, CharSequence>> iter = headers.iteratorCharSequence();
+        while (iter.hasNext()) {
+            Entry<CharSequence, CharSequence> header = iter.next();
+            HttpHeadersEncoder.encoderHeader(header.getKey(), header.getValue(), buf);
+        }
     }
 
     private void encodeChunkedContent(ChannelHandlerContext ctx, Object msg, long contentLength, List<Object> out) {
@@ -211,7 +220,7 @@ public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageTo
 
     @Deprecated
     protected static void encodeAscii(String s, ByteBuf buf) {
-        HttpHeaders.encodeAscii0(s, buf);
+        HttpUtil.encodeAscii0(s, buf);
     }
 
     protected abstract void encodeInitialLine(ByteBuf buf, H message) throws Exception;

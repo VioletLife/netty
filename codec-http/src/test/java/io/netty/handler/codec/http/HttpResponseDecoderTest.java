@@ -15,8 +15,10 @@
  */
 package io.netty.handler.codec.http;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.PrematureChannelClosureException;
 import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.CharsetUtil;
 import org.junit.Test;
@@ -24,8 +26,18 @@ import org.junit.Test;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.hamcrest.CoreMatchers.*;
-import static org.junit.Assert.*;
+import static io.netty.handler.codec.http.HttpHeadersTestUtils.of;
+import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.CoreMatchers.sameInstance;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 public class HttpResponseDecoderTest {
 
@@ -339,7 +351,7 @@ public class HttpResponseDecoderTest {
         HttpResponse res = ch.readInbound();
         assertThat(res.protocolVersion(), sameInstance(HttpVersion.HTTP_1_1));
         assertThat(res.status(), is(HttpResponseStatus.OK));
-        assertThat(res.headers().get("X-Header"), is("h2=h2v2; Expires=Wed, 09-Jun-2021 10:18:14 GMT"));
+        assertThat(res.headers().get(of("X-Header")), is("h2=h2v2; Expires=Wed, 09-Jun-2021 10:18:14 GMT"));
         assertThat(ch.readInbound(), is(nullValue()));
 
         ch.writeInbound(Unpooled.wrappedBuffer(new byte[1024]));
@@ -377,7 +389,7 @@ public class HttpResponseDecoderTest {
         assertThat(lastContent.content().isReadable(), is(false));
         HttpHeaders headers = lastContent.trailingHeaders();
         assertEquals(1, headers.names().size());
-        List<String> values = headers.getAll("Set-Cookie");
+        List<String> values = headers.getAll(of("Set-Cookie"));
         assertEquals(2, values.size());
         assertTrue(values.contains("t1=t1v1"));
         assertTrue(values.contains("t2=t2v2; Expires=Wed, 09-Jun-2021 10:18:14 GMT"));
@@ -427,7 +439,7 @@ public class HttpResponseDecoderTest {
         assertThat(lastContent.content().isReadable(), is(false));
         HttpHeaders headers = lastContent.trailingHeaders();
         assertEquals(1, headers.names().size());
-        List<String> values = headers.getAll("Set-Cookie");
+        List<String> values = headers.getAll(of("Set-Cookie"));
         assertEquals(2, values.size());
         assertTrue(values.contains("t1=t1v1"));
         assertTrue(values.contains("t2=t2v2; Expires=Wed, 09-Jun-2021 10:18:14 GMT"));
@@ -566,7 +578,16 @@ public class HttpResponseDecoderTest {
 
         assertThat(ch.finish(), is(true));
 
-        assertEquals(ch.readInbound(), Unpooled.wrappedBuffer(otherData));
+        ByteBuf expected = Unpooled.wrappedBuffer(otherData);
+        ByteBuf buffer = ch.readInbound();
+        try {
+            assertEquals(expected, buffer);
+        } finally {
+            expected.release();
+            if (buffer != null) {
+                buffer.release();
+            }
+        }
     }
 
     @Test
@@ -626,5 +647,18 @@ public class HttpResponseDecoderTest {
 
         // .. even after the connection is closed.
         assertThat(channel.finish(), is(false));
+    }
+
+    @Test
+    public void testConnectionClosedBeforeHeadersReceived() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpResponseDecoder());
+        String responseInitialLine =
+                "HTTP/1.1 200 OK\r\n";
+        assertFalse(channel.writeInbound(Unpooled.copiedBuffer(responseInitialLine, CharsetUtil.US_ASCII)));
+        assertTrue(channel.finish());
+        HttpMessage message = channel.readInbound();
+        assertTrue(message.decoderResult().isFailure());
+        assertThat(message.decoderResult().cause(), instanceOf(PrematureChannelClosureException.class));
+        assertNull(channel.readInbound());
     }
 }

@@ -15,25 +15,40 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.internal.UnstableApi;
 
 /**
  * A {@link Http2FlowController} for controlling the flow of outbound {@code DATA} frames to the remote
  * endpoint.
  */
+@UnstableApi
 public interface Http2RemoteFlowController extends Http2FlowController {
+    /**
+     * Get the {@link ChannelHandlerContext} for which to apply flow control on.
+     * <p>
+     * This is intended for us by {@link FlowControlled} implementations only. Use with caution.
+     * @return The {@link ChannelHandlerContext} for which to apply flow control on.
+     */
+    ChannelHandlerContext channelHandlerContext();
 
     /**
      * Queues a payload for transmission to the remote endpoint. There is no guarantee as to when the data
-     * will be written or how it will be allocated to frames.
+     * will be written or how it will be assigned to frames.
      * before sending.
      * <p>
      * Writes do not actually occur until {@link #writePendingBytes()} is called.
      *
-     * @param ctx the context from the handler.
      * @param stream the subject stream. Must not be the connection stream object.
      * @param payload payload to write subject to flow-control accounting and ordering rules.
      */
-    void addFlowControlled(ChannelHandlerContext ctx, Http2Stream stream, FlowControlled payload);
+    void addFlowControlled(Http2Stream stream, FlowControlled payload);
+
+    /**
+     * Determine if {@code stream} has any {@link FlowControlled} frames currently queued.
+     * @param stream the stream to check if it has flow controlled frames.
+     * @return {@code true} if {@code stream} has any {@link FlowControlled} frames currently queued.
+     */
+    boolean hasFlowControlled(Http2Stream stream);
 
     /**
      * Write all data pending in the flow controller up to the flow-control limits.
@@ -50,11 +65,21 @@ public interface Http2RemoteFlowController extends Http2FlowController {
     void listener(Listener listener);
 
     /**
-     * Get the current listener to flow-control events.
-     *
-     * @return the current listener or {@code null} if one is not set.
+     * Determine if the {@code stream} has bytes remaining for use in the flow control window.
+     * <p>
+     * Note that this only takes into account HTTP/2 flow control. It does <strong>not</strong> take into account
+     * the underlying {@link io.netty.channel.Channel#isWritable()}.
+     * @param stream The stream to test.
+     * @return {@code true} if if the {@code stream} has bytes remaining for use in the flow control window.
+     * {@code false} otherwise.
      */
-    Listener listener();
+    boolean isWritable(Http2Stream stream);
+
+    /**
+     * Notification that the writability of {@link #channelHandlerContext()} has changed.
+     * @throws Http2Exception If any writes occur as a result of this call and encounter errors.
+     */
+    void channelWritabilityChanged() throws Http2Exception;
 
     /**
      * Implementations of this interface are used to progressively write chunks of the underlying
@@ -74,19 +99,21 @@ public interface Http2RemoteFlowController extends Http2FlowController {
         /**
          * Called to indicate that an error occurred before this object could be completely written.
          * <p>
-         * The {@link Http2RemoteFlowController} will make exactly one call to either {@link #error(Throwable)} or
-         * {@link #writeComplete()}.
+         * The {@link Http2RemoteFlowController} will make exactly one call to either
+         * this method or {@link #writeComplete()}.
          * </p>
          *
+         * @param ctx The context to use if any communication needs to occur as a result of the error.
+         * This may be {@code null} if an exception occurs when the connection has not been established yet.
          * @param cause of the error.
          */
-        void error(Throwable cause);
+        void error(ChannelHandlerContext ctx, Throwable cause);
 
         /**
          * Called after this object has been successfully written.
          * <p>
-         * The {@link Http2RemoteFlowController} will make exactly one call to either {@link #error(Throwable)} or
-         * {@link #writeComplete()}.
+         * The {@link Http2RemoteFlowController} will make exactly one call to either
+         * this method or {@link #error(ChannelHandlerContext, Throwable)}.
          * </p>
          */
         void writeComplete();
@@ -98,12 +125,13 @@ public interface Http2RemoteFlowController extends Http2FlowController {
          * the payload is fully written, i.e it's size after the write is 0.
          * <p>
          * When an exception is thrown the {@link Http2RemoteFlowController} will make a call to
-         * {@link #error(Throwable)}.
+         * {@link #error(ChannelHandlerContext, Throwable)}.
          * </p>
          *
+         * @param ctx The context to use for writing.
          * @param allowedBytes an upper bound on the number of bytes the payload can write at this time.
          */
-        void write(int allowedBytes);
+        void write(ChannelHandlerContext ctx, int allowedBytes);
 
         /**
          * Merge the contents of the {@code next} message into this message so they can be written out as one unit.
@@ -112,22 +140,19 @@ public interface Http2RemoteFlowController extends Http2FlowController {
          * @return {@code true} if {@code next} was successfully merged and does not need to be enqueued,
          *     {@code false} otherwise.
          */
-        boolean merge(FlowControlled next);
+        boolean merge(ChannelHandlerContext ctx, FlowControlled next);
     }
 
     /**
      * Listener to the number of flow-controlled bytes written per stream.
      */
     interface Listener {
-
         /**
-         * Report the number of {@code writtenBytes} for a {@code stream}. Called after the
-         * flow-controller has flushed bytes for the given stream.
-         *
-         * @param stream that had bytes written.
-         * @param writtenBytes the number of bytes written for a stream, can be 0 in the case of an
-         *                     empty DATA frame.
+         * Notification that {@link Http2RemoteFlowController#isWritable(Http2Stream)} has changed for {@code stream}.
+         * <p>
+         * This method should not throw. Any thrown exceptions are considered a programming error and are ignored.
+         * @param stream The stream which writability has changed for.
          */
-        void streamWritten(Http2Stream stream, int writtenBytes);
+        void writabilityChanged(Http2Stream stream);
     }
 }

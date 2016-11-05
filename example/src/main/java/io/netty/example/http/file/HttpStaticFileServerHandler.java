@@ -30,7 +30,7 @@ import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpChunkedInput;
 import io.netty.handler.codec.http.HttpHeaderNames;
-import io.netty.handler.codec.http.HttpHeaderUtil;
+import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -137,7 +137,7 @@ public class HttpStaticFileServerHandler extends SimpleChannelInboundHandler<Ful
 
         if (file.isDirectory()) {
             if (uri.endsWith("/")) {
-                sendListing(ctx, file);
+                sendListing(ctx, file, uri);
             } else {
                 sendRedirect(ctx, uri + '/');
             }
@@ -175,10 +175,10 @@ public class HttpStaticFileServerHandler extends SimpleChannelInboundHandler<Ful
         long fileLength = raf.length();
 
         HttpResponse response = new DefaultHttpResponse(HTTP_1_1, OK);
-        HttpHeaderUtil.setContentLength(response, fileLength);
+        HttpUtil.setContentLength(response, fileLength);
         setContentTypeHeader(response, file);
         setDateAndCacheHeaders(response, file);
-        if (HttpHeaderUtil.isKeepAlive(request)) {
+        if (HttpUtil.isKeepAlive(request)) {
             response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
         }
 
@@ -218,7 +218,7 @@ public class HttpStaticFileServerHandler extends SimpleChannelInboundHandler<Ful
         });
 
         // Decide whether to close the connection or not.
-        if (!HttpHeaderUtil.isKeepAlive(request)) {
+        if (!HttpUtil.isKeepAlive(request)) {
             // Close the connection when the whole content is written out.
             lastContentFuture.addListener(ChannelFutureListener.CLOSE);
         }
@@ -262,16 +262,15 @@ public class HttpStaticFileServerHandler extends SimpleChannelInboundHandler<Ful
         return SystemPropertyUtil.get("user.dir") + File.separator + uri;
     }
 
-    private static final Pattern ALLOWED_FILE_NAME = Pattern.compile("[A-Za-z0-9][-_A-Za-z0-9\\.]*");
+    private static final Pattern ALLOWED_FILE_NAME = Pattern.compile("[^-\\._]?[^<>&\\\"]*");
 
-    private static void sendListing(ChannelHandlerContext ctx, File dir) {
+    private static void sendListing(ChannelHandlerContext ctx, File dir, String dirPath) {
         FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, OK);
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=UTF-8");
 
-        String dirPath = dir.getPath();
         StringBuilder buf = new StringBuilder()
             .append("<!DOCTYPE html>\r\n")
-            .append("<html><head><title>")
+            .append("<html><head><meta charset='utf-8' /><title>")
             .append("Listing of: ")
             .append(dirPath)
             .append("</title></head><body>\r\n")

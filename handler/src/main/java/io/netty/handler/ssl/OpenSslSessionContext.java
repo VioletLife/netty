@@ -15,7 +15,10 @@
  */
 package io.netty.handler.ssl;
 
+import io.netty.util.internal.ObjectUtil;
+import org.apache.tomcat.jni.SSL;
 import org.apache.tomcat.jni.SSLContext;
+import org.apache.tomcat.jni.SessionTicketKey;
 
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSessionContext;
@@ -29,9 +32,13 @@ public abstract class OpenSslSessionContext implements SSLSessionContext {
     private static final Enumeration<byte[]> EMPTY = new EmptyEnumeration();
 
     private final OpenSslSessionStats stats;
-    final long context;
+    final ReferenceCountedOpenSslContext context;
 
-    OpenSslSessionContext(long context) {
+    // IMPORTANT: We take the OpenSslContext and not just the long (which points the native instance) to prevent
+    //            the GC to collect OpenSslContext as this would also free the pointer and so could result in a
+    //            segfault when the user calls any of the methods here that try to pass the pointer down to the native
+    //            level.
+    OpenSslSessionContext(ReferenceCountedOpenSslContext context) {
         this.context = context;
         stats = new OpenSslSessionStats(context);
     }
@@ -51,12 +58,26 @@ public abstract class OpenSslSessionContext implements SSLSessionContext {
 
     /**
      * Sets the SSL session ticket keys of this context.
+     * @deprecated use {@link #setTicketKeys(OpenSslSessionTicketKey...)}.
      */
+    @Deprecated
     public void setTicketKeys(byte[] keys) {
-        if (keys == null) {
-            throw new NullPointerException("keys");
+        ObjectUtil.checkNotNull(keys, "keys");
+        SSLContext.clearOptions(context.ctx, SSL.SSL_OP_NO_TICKET);
+        SSLContext.setSessionTicketKeys(context.ctx, keys);
+    }
+
+    /**
+     * Sets the SSL session ticket keys of this context.
+     */
+    public void setTicketKeys(OpenSslSessionTicketKey... keys) {
+        ObjectUtil.checkNotNull(keys, "keys");
+        SSLContext.clearOptions(context.ctx, SSL.SSL_OP_NO_TICKET);
+        SessionTicketKey[] ticketKeys = new SessionTicketKey[keys.length];
+        for (int i = 0; i < ticketKeys.length; i++) {
+            ticketKeys[i] = keys[i].key;
         }
-        SSLContext.setSessionTicketKeys(context, keys);
+        SSLContext.setSessionTicketKeys(context.ctx, ticketKeys);
     }
 
     /**

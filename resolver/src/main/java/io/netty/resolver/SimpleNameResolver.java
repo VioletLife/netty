@@ -19,149 +19,66 @@ package io.netty.resolver;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.Promise;
-import io.netty.util.internal.TypeParameterMatcher;
 
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.nio.channels.UnsupportedAddressTypeException;
+import java.util.List;
+
+import static io.netty.util.internal.ObjectUtil.*;
 
 /**
  * A skeletal {@link NameResolver} implementation.
  */
-public abstract class SimpleNameResolver<T extends SocketAddress> implements NameResolver<T> {
+public abstract class SimpleNameResolver<T> implements NameResolver<T> {
 
     private final EventExecutor executor;
-    private final TypeParameterMatcher matcher;
 
     /**
      * @param executor the {@link EventExecutor} which is used to notify the listeners of the {@link Future} returned
-     *                 by {@link #resolve(SocketAddress)}
+     *                 by {@link #resolve(String)}
      */
     protected SimpleNameResolver(EventExecutor executor) {
-        if (executor == null) {
-            throw new NullPointerException("executor");
-        }
-
-        this.executor = executor;
-        matcher = TypeParameterMatcher.find(this, SimpleNameResolver.class, "T");
-    }
-
-    /**
-     * @param executor the {@link EventExecutor} which is used to notify the listeners of the {@link Future} returned
-     *                 by {@link #resolve(SocketAddress)}
-     * @param addressType the type of the {@link SocketAddress} supported by this resolver
-     */
-    protected SimpleNameResolver(EventExecutor executor, Class<? extends T> addressType) {
-        if (executor == null) {
-            throw new NullPointerException("executor");
-        }
-
-        this.executor = executor;
-        matcher = TypeParameterMatcher.get(addressType);
+        this.executor = checkNotNull(executor, "executor");
     }
 
     /**
      * Returns the {@link EventExecutor} which is used to notify the listeners of the {@link Future} returned
-     * by {@link #resolve(SocketAddress)}.
+     * by {@link #resolve(String)}.
      */
     protected EventExecutor executor() {
         return executor;
     }
 
     @Override
-    public boolean isSupported(SocketAddress address) {
-        return matcher.match(address);
+    public final Future<T> resolve(String inetHost) {
+        final Promise<T> promise = executor().newPromise();
+        return resolve(inetHost, promise);
     }
 
     @Override
-    public final boolean isResolved(SocketAddress address) {
-        if (!isSupported(address)) {
-            throw new UnsupportedAddressTypeException();
-        }
-
-        @SuppressWarnings("unchecked")
-        final T castAddress = (T) address;
-        return doIsResolved(castAddress);
-    }
-
-    /**
-     * Invoked by {@link #isResolved(SocketAddress)} to check if the specified {@code address} has been resolved
-     * already.
-     */
-    protected abstract boolean doIsResolved(T address);
-
-    @Override
-    public final Future<T> resolve(String inetHost, int inetPort) {
-        if (inetHost == null) {
-            throw new NullPointerException("inetHost");
-        }
-
-        return resolve(InetSocketAddress.createUnresolved(inetHost, inetPort));
-    }
-
-    @Override
-    public Future<T> resolve(String inetHost, int inetPort, Promise<T> promise) {
-        if (inetHost == null) {
-            throw new NullPointerException("inetHost");
-        }
-
-        return resolve(InetSocketAddress.createUnresolved(inetHost, inetPort), promise);
-    }
-
-    @Override
-    public final Future<T> resolve(SocketAddress address) {
-        if (address == null) {
-            throw new NullPointerException("unresolvedAddress");
-        }
-
-        if (!isSupported(address)) {
-            // Address type not supported by the resolver
-            return executor().newFailedFuture(new UnsupportedAddressTypeException());
-        }
-
-        if (isResolved(address)) {
-            // Resolved already; no need to perform a lookup
-            @SuppressWarnings("unchecked")
-            final T cast = (T) address;
-            return executor.newSucceededFuture(cast);
-        }
+    public Future<T> resolve(String inetHost, Promise<T> promise) {
+        checkNotNull(inetHost, "inetHost");
+        checkNotNull(promise, "promise");
 
         try {
-            @SuppressWarnings("unchecked")
-            final T cast = (T) address;
-            final Promise<T> promise = executor().newPromise();
-            doResolve(cast, promise);
+            doResolve(inetHost, promise);
             return promise;
         } catch (Exception e) {
-            return executor().newFailedFuture(e);
+            return promise.setFailure(e);
         }
     }
 
     @Override
-    public final Future<T> resolve(SocketAddress address, Promise<T> promise) {
-        if (address == null) {
-            throw new NullPointerException("unresolvedAddress");
-        }
-        if (promise == null) {
-            throw new NullPointerException("promise");
-        }
+    public final Future<List<T>> resolveAll(String inetHost) {
+        final Promise<List<T>> promise = executor().newPromise();
+        return resolveAll(inetHost, promise);
+    }
 
-        if (!isSupported(address)) {
-            // Address type not supported by the resolver
-            return promise.setFailure(new UnsupportedAddressTypeException());
-        }
-
-        if (isResolved(address)) {
-            // Resolved already; no need to perform a lookup
-            @SuppressWarnings("unchecked")
-            final T cast = (T) address;
-            return promise.setSuccess(cast);
-        }
+    @Override
+    public Future<List<T>> resolveAll(String inetHost, Promise<List<T>> promise) {
+        checkNotNull(inetHost, "inetHost");
+        checkNotNull(promise, "promise");
 
         try {
-            @SuppressWarnings("unchecked")
-            final T cast = (T) address;
-            doResolve(cast, promise);
+            doResolveAll(inetHost, promise);
             return promise;
         } catch (Exception e) {
             return promise.setFailure(e);
@@ -169,10 +86,14 @@ public abstract class SimpleNameResolver<T extends SocketAddress> implements Nam
     }
 
     /**
-     * Invoked by {@link #resolve(SocketAddress)} and {@link #resolve(String, int)} to perform the actual name
-     * resolution.
+     * Invoked by {@link #resolve(String)} to perform the actual name resolution.
      */
-    protected abstract void doResolve(T unresolvedAddress, Promise<T> promise) throws Exception;
+    protected abstract void doResolve(String inetHost, Promise<T> promise) throws Exception;
+
+    /**
+     * Invoked by {@link #resolveAll(String)} to perform the actual name resolution.
+     */
+    protected abstract void doResolveAll(String inetHost, Promise<List<T>> promise) throws Exception;
 
     @Override
     public void close() { }

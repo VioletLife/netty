@@ -16,11 +16,12 @@
 package io.netty.handler.codec.http2;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.util.ByteString;
+import io.netty.util.internal.UnstableApi;
 
 /**
  * Encodes {@link Http2Headers} into HPACK-encoded headers blocks.
  */
+@UnstableApi
 public interface Http2HeadersEncoder {
     /**
      * Configuration related elements for the {@link Http2HeadersEncoder} interface
@@ -47,16 +48,17 @@ public interface Http2HeadersEncoder {
          * <a href="http://tools.ietf.org/html/draft-ietf-httpbis-header-compression-12#section-7.1.3">sensitive</a>.
          * {@code false} otherwise.
          */
-        boolean isSensitive(ByteString name, ByteString value);
+        boolean isSensitive(CharSequence name, CharSequence value);
     }
 
     /**
      * Encodes the given headers and writes the output headers block to the given output buffer.
      *
+     * @param streamId  the identifier of the stream for which the headers are encoded.
      * @param headers the headers to be encoded.
      * @param buffer the buffer to receive the encoded headers.
      */
-    void encodeHeaders(Http2Headers headers, ByteBuf buffer) throws Http2Exception;
+    void encodeHeaders(int streamId, Http2Headers headers, ByteBuf buffer) throws Http2Exception;
 
     /**
      * Get the {@link Configuration} for this {@link Http2HeadersEncoder}
@@ -64,12 +66,22 @@ public interface Http2HeadersEncoder {
     Configuration configuration();
 
     /**
-     * Always return {@code false} for {@link SensitivityDetector#isSensitive(ByteString, ByteString)}.
+     * Always return {@code false} for {@link SensitivityDetector#isSensitive(CharSequence, CharSequence)}.
      */
     SensitivityDetector NEVER_SENSITIVE = new SensitivityDetector() {
         @Override
-        public boolean isSensitive(ByteString name, ByteString value) {
+        public boolean isSensitive(CharSequence name, CharSequence value) {
             return false;
+        }
+    };
+
+    /**
+     * Always return {@code true} for {@link SensitivityDetector#isSensitive(CharSequence, CharSequence)}.
+     */
+    SensitivityDetector ALWAYS_SENSITIVE = new SensitivityDetector() {
+        @Override
+        public boolean isSensitive(CharSequence name, CharSequence value) {
+            return true;
         }
     };
 }

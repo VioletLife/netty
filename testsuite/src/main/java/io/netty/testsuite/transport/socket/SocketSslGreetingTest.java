@@ -26,12 +26,12 @@ import io.netty.channel.ChannelPipeline;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.handler.ssl.JdkSslClientContext;
-import io.netty.handler.ssl.JdkSslServerContext;
 import io.netty.handler.ssl.OpenSsl;
-import io.netty.handler.ssl.OpenSslClientContext;
-import io.netty.handler.ssl.OpenSslServerContext;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.ssl.SslHandshakeCompletionEvent;
+import io.netty.handler.ssl.SslProvider;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.internal.logging.InternalLogger;
@@ -41,6 +41,8 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSession;
 import java.io.File;
 import java.io.IOException;
 import java.security.cert.CertificateException;
@@ -50,7 +52,8 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 @RunWith(Parameterized.class)
 public class SocketSslGreetingTest extends AbstractSocketTest {
@@ -76,15 +79,17 @@ public class SocketSslGreetingTest extends AbstractSocketTest {
     @Parameters(name = "{index}: serverEngine = {0}, clientEngine = {1}")
     public static Collection<Object[]> data() throws Exception {
         List<SslContext> serverContexts = new ArrayList<SslContext>();
-        serverContexts.add(new JdkSslServerContext(CERT_FILE, KEY_FILE));
+        serverContexts.add(SslContextBuilder.forServer(CERT_FILE, KEY_FILE).sslProvider(SslProvider.JDK).build());
 
         List<SslContext> clientContexts = new ArrayList<SslContext>();
-        clientContexts.add(new JdkSslClientContext(CERT_FILE));
+        clientContexts.add(SslContextBuilder.forClient().sslProvider(SslProvider.JDK).trustManager(CERT_FILE).build());
 
         boolean hasOpenSsl = OpenSsl.isAvailable();
         if (hasOpenSsl) {
-            serverContexts.add(new OpenSslServerContext(CERT_FILE, KEY_FILE));
-            clientContexts.add(new OpenSslClientContext(CERT_FILE));
+            serverContexts.add(SslContextBuilder.forServer(CERT_FILE, KEY_FILE)
+                                                .sslProvider(SslProvider.OPENSSL).build());
+            clientContexts.add(SslContextBuilder.forClient().sslProvider(SslProvider.OPENSSL)
+                                                .trustManager(CERT_FILE).build());
         } else {
             logger.warn("OpenSSL is unavailable and thus will not be tested.", OpenSsl.unavailabilityCause());
         }
@@ -196,7 +201,7 @@ public class SocketSslGreetingTest extends AbstractSocketTest {
         public void channelActive(ChannelHandlerContext ctx)
                 throws Exception {
             channel = ctx.channel();
-            channel.writeAndFlush(greeting.duplicate().retain());
+            channel.writeAndFlush(greeting.retainedDuplicate());
         }
 
         @Override
@@ -208,6 +213,35 @@ public class SocketSslGreetingTest extends AbstractSocketTest {
 
             exception.compareAndSet(null, cause);
             ctx.close();
+        }
+
+        @Override
+        public void userEventTriggered(final ChannelHandlerContext ctx, final Object evt) throws Exception {
+            if (evt instanceof SslHandshakeCompletionEvent) {
+                final SslHandshakeCompletionEvent event = (SslHandshakeCompletionEvent) evt;
+                if (event.isSuccess()) {
+                    SSLSession session = ctx.pipeline().get(SslHandler.class).engine().getSession();
+                    try {
+                        session.getPeerCertificates();
+                        fail();
+                    } catch (SSLPeerUnverifiedException e) {
+                        // expected
+                    }
+                    try {
+                        session.getPeerCertificateChain();
+                        fail();
+                    } catch (SSLPeerUnverifiedException e) {
+                        // expected
+                    }
+                    try {
+                        session.getPeerPrincipal();
+                        fail();
+                    } catch (SSLPeerUnverifiedException e) {
+                        // expected
+                    }
+                }
+            }
+            ctx.fireUserEventTriggered(evt);
         }
     }
 }

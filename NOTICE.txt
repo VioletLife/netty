@@ -146,7 +146,7 @@ and decompression library written by William Kinney. It can be obtained at:
   * HOMEPAGE:
     * https://code.google.com/p/jfastlz/
 
-This product optionally depends on 'Protocol Buffers', Google's data
+This product contains a modified portion of and optionally depends on 'Protocol Buffers', Google's data
 interchange format, which can be obtained at:
 
   * LICENSE:
@@ -210,4 +210,20 @@ non-blocking XML processor, which can be obtained at:
     * license/LICENSE.aalto-xml.txt (Apache License 2.0)
   * HOMEPAGE:
     * http://wiki.fasterxml.com/AaltoHome
+
+This product contains a modified version of 'HPACK', a Java implementation of
+the HTTP/2 HPACK algorithm written by Twitter. It can be obtained at:
+
+  * LICENSE:
+    * license/LICENSE.hpack.txt (Apache License 2.0)
+  * HOMEPAGE:
+    * https://github.com/twitter/hpack
+
+This product contains a modified portion of 'Apache Commons Lang', a Java library
+provides utilities for the java.lang API, which can be obtained at:
+
+  * LICENSE:
+    * license/LICENSE.commons-lang.txt (Apache License 2.0)
+  * HOMEPAGE:
+    * https://commons.apache.org/proper/commons-lang/
 

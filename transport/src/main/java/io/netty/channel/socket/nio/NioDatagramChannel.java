@@ -79,7 +79,7 @@ public final class NioDatagramChannel
              *  Use the {@link SelectorProvider} to open {@link SocketChannel} and so remove condition in
              *  {@link SelectorProvider#provider()} which is called by each DatagramChannel.open() otherwise.
              *
-             *  See <a href="See https://github.com/netty/netty/issues/2308">#2308</a>.
+             *  See <a href="https://github.com/netty/netty/issues/2308">#2308</a>.
              */
             return provider.openDatagramChannel();
         } catch (IOException e) {
@@ -188,14 +188,22 @@ public final class NioDatagramChannel
 
     @Override
     protected void doBind(SocketAddress localAddress) throws Exception {
-        javaChannel().socket().bind(localAddress);
+        doBind0(localAddress);
+    }
+
+    private void doBind0(SocketAddress localAddress) throws Exception {
+        if (PlatformDependent.javaVersion() >= 7) {
+            javaChannel().bind(localAddress);
+        } else {
+            javaChannel().socket().bind(localAddress);
+        }
     }
 
     @Override
     protected boolean doConnect(SocketAddress remoteAddress,
             SocketAddress localAddress) throws Exception {
         if (localAddress != null) {
-            javaChannel().socket().bind(localAddress);
+            doBind0(localAddress);
         }
 
         boolean success = false;
@@ -232,6 +240,7 @@ public final class NioDatagramChannel
         RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
 
         ByteBuf data = allocHandle.allocate(config.getAllocator());
+        allocHandle.attemptedBytesRead(data.writableBytes());
         boolean free = true;
         try {
             ByteBuffer nioData = data.internalNioBuffer(data.writerIndex(), data.writableBytes());
@@ -241,11 +250,9 @@ public final class NioDatagramChannel
                 return 0;
             }
 
-            int readBytes = nioData.position() - pos;
-            data.writerIndex(data.writerIndex() + readBytes);
-            allocHandle.record(readBytes);
-
-            buf.add(new DatagramPacket(data, localAddress(), remoteAddress));
+            allocHandle.lastBytesRead(nioData.position() - pos);
+            buf.add(new DatagramPacket(data.writerIndex(data.writerIndex() + allocHandle.lastBytesRead()),
+                    localAddress(), remoteAddress));
             free = false;
             return 1;
         } catch (Throwable cause) {
@@ -580,7 +587,22 @@ public final class NioDatagramChannel
     }
 
     @Override
+    @Deprecated
     protected void setReadPending(boolean readPending) {
         super.setReadPending(readPending);
+    }
+
+    void clearReadPending0() {
+        clearReadPending();
+    }
+
+    @Override
+    protected boolean closeOnReadError(Throwable cause) {
+        // We do not want to close on SocketException when using DatagramChannel as we usually can continue receiving.
+        // See https://github.com/netty/netty/issues/5893
+        if (cause instanceof SocketException) {
+            return false;
+        }
+        return super.closeOnReadError(cause);
     }
 }

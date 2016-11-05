@@ -15,22 +15,49 @@
 
 package io.netty.handler.codec.http2;
 
+import io.netty.util.internal.UnstableApi;
+
 /**
  * A single stream within an HTTP2 connection. Streams are compared to each other by priority.
  */
+@UnstableApi
 public interface Http2Stream {
 
     /**
      * The allowed states of an HTTP2 stream.
      */
     enum State {
-        IDLE,
-        RESERVED_LOCAL,
-        RESERVED_REMOTE,
-        OPEN,
-        HALF_CLOSED_LOCAL,
-        HALF_CLOSED_REMOTE,
-        CLOSED
+        IDLE(false, false),
+        RESERVED_LOCAL(false, false),
+        RESERVED_REMOTE(false, false),
+        OPEN(true, true),
+        HALF_CLOSED_LOCAL(false, true),
+        HALF_CLOSED_REMOTE(true, false),
+        CLOSED(false, false);
+
+        private final boolean localSideOpen;
+        private final boolean remoteSideOpen;
+
+        State(boolean localSideOpen, boolean remoteSideOpen) {
+            this.localSideOpen = localSideOpen;
+            this.remoteSideOpen = remoteSideOpen;
+        }
+
+        /**
+         * Indicates whether the local side of this stream is open (i.e. the state is either
+         * {@link State#OPEN} or {@link State#HALF_CLOSED_REMOTE}).
+         */
+        public boolean localSideOpen() {
+            return localSideOpen;
+        }
+
+        /**
+         * Indicates whether the remote side of this stream is open (i.e. the state is either
+         * {@link State#OPEN} or {@link State#HALF_CLOSED_LOCAL}).
+         */
+        public boolean remoteSideOpen() {
+            return remoteSideOpen;
+        }
     }
 
     /**
@@ -87,18 +114,6 @@ public interface Http2Stream {
     Http2Stream resetSent();
 
     /**
-     * Indicates whether the remote side of this stream is open (i.e. the state is either
-     * {@link State#OPEN} or {@link State#HALF_CLOSED_LOCAL}).
-     */
-    boolean remoteSideOpen();
-
-    /**
-     * Indicates whether the local side of this stream is open (i.e. the state is either
-     * {@link State#OPEN} or {@link State#HALF_CLOSED_REMOTE}).
-     */
-    boolean localSideOpen();
-
-    /**
      * Associates the application-defined data with this stream.
      * @return The value that was previously associated with {@code key}, or {@code null} if there was none.
      */
@@ -115,7 +130,7 @@ public interface Http2Stream {
     <V> V removeProperty(Http2Connection.PropertyKey key);
 
     /**
-     * Updates an priority for this stream. Calling this method may affect the straucture of the
+     * Updates an priority for this stream. Calling this method may affect the structure of the
      * priority tree.
      *
      * @param parentStreamId the parent stream that given stream should depend on. May be {@code 0},
@@ -146,22 +161,10 @@ public interface Http2Stream {
     short weight();
 
     /**
-     * The total of the weights of all children of this stream.
-     */
-    int totalChildWeights();
-
-    /**
      * The parent (i.e. the node in the priority tree on which this node depends), or {@code null}
      * if this is the root node (i.e. the connection, itself).
      */
     Http2Stream parent();
-
-    /**
-     * Get the number of streams in the priority tree rooted at this node that are OK to exist in the priority
-     * tree on their own right. Some streams may be in the priority tree because their dependents require them to
-     * remain.
-     */
-    int prioritizableForTree();
 
     /**
      * Indicates whether or not this stream is a descendant in the priority tree from the given stream.

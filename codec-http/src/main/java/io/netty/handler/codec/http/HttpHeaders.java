@@ -17,13 +17,11 @@ package io.netty.handler.codec.http;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
-import io.netty.handler.codec.Headers.EntryVisitor;
+import io.netty.handler.codec.Headers;
 import io.netty.util.AsciiString;
-import io.netty.util.internal.PlatformDependent;
 
 import java.text.ParseException;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
@@ -31,7 +29,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-import static io.netty.handler.codec.http.HttpConstants.*;
 import static io.netty.util.internal.ObjectUtil.checkNotNull;
 
 /**
@@ -39,131 +36,15 @@ import static io.netty.util.internal.ObjectUtil.checkNotNull;
  * commonly used utility methods that accesses an {@link HttpMessage}.
  */
 public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>> {
-
-    private static final byte[] HEADER_SEPERATOR = { COLON, SP };
-    private static final byte[] CRLF = { CR, LF };
-
-    public static final HttpHeaders EMPTY_HEADERS = new HttpHeaders() {
-        @Override
-        public String get(String name) {
-            return null;
-        }
-
-        @Override
-        public Integer getInt(CharSequence name) {
-            return null;
-        }
-
-        @Override
-        public int getInt(CharSequence name, int defaultValue) {
-            return defaultValue;
-        }
-
-        @Override
-        public Short getShort(CharSequence name) {
-            return null;
-        }
-
-        @Override
-        public short getShort(CharSequence name, short defaultValue) {
-            return defaultValue;
-        }
-
-        @Override
-        public Long getTimeMillis(CharSequence name) {
-            return null;
-        }
-
-        @Override
-        public long getTimeMillis(CharSequence name, long defaultValue) {
-            return defaultValue;
-        }
-
-        @Override
-        public List<String> getAll(String name) {
-            return Collections.emptyList();
-        }
-
-        @Override
-        public List<Entry<String, String>> entries() {
-            return Collections.emptyList();
-        }
-
-        @Override
-        public boolean contains(String name) {
-            return false;
-        }
-
-        @Override
-        public boolean isEmpty() {
-            return true;
-        }
-
-        @Override
-        public Set<String> names() {
-            return Collections.emptySet();
-        }
-
-        @Override
-        public HttpHeaders add(String name, Object value) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders add(String name, Iterable<?> values) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders addInt(CharSequence name, int value) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders addShort(CharSequence name, short value) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders set(String name, Object value) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders set(String name, Iterable<?> values) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders setInt(CharSequence name, int value) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders setShort(CharSequence name, short value) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders remove(String name) {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public HttpHeaders clear() {
-            throw new UnsupportedOperationException("read only");
-        }
-
-        @Override
-        public Entry<CharSequence, CharSequence> forEachEntry(EntryVisitor<CharSequence> visitor) throws Exception {
-            return null; // Since this is an empty header collection
-        }
-
-        @Override
-        public Iterator<Entry<String, String>> iterator() {
-            return entries().iterator();
-        }
-    };
+    /**
+     * @deprecated Use {@link EmptyHttpHeaders#INSTANCE}.
+     * <p>
+     * The instance is instantiated here to break the cyclic static initialization between {@link EmptyHttpHeaders} and
+     * {@link HttpHeaders}. The issue is that if someone accesses {@link EmptyHttpHeaders#INSTANCE} before
+     * {@link HttpHeaders#EMPTY_HEADERS} then {@link HttpHeaders#EMPTY_HEADERS} will be {@code null}.
+     */
+    @Deprecated
+    public static final HttpHeaders EMPTY_HEADERS = EmptyHttpHeaders.instance();
 
     /**
      * @deprecated Use {@link HttpHeaderNames} instead.
@@ -611,7 +492,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#isKeepAlive(HttpMessage)} instead.
+     * @deprecated Use {@link HttpUtil#isKeepAlive(HttpMessage)} instead.
      *
      * Returns {@code true} if and only if the connection can remain open and
      * thus 'kept alive'.  This methods respects the value of the
@@ -620,11 +501,11 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      */
     @Deprecated
     public static boolean isKeepAlive(HttpMessage message) {
-        return HttpHeaderUtil.isKeepAlive(message);
+        return HttpUtil.isKeepAlive(message);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#setKeepAlive(HttpMessage, boolean)} instead.
+     * @deprecated Use {@link HttpUtil#setKeepAlive(HttpMessage, boolean)} instead.
      *
      * Sets the value of the {@code "Connection"} header depending on the
      * protocol version of the specified message.  This getMethod sets or removes
@@ -646,13 +527,11 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      */
     @Deprecated
     public static void setKeepAlive(HttpMessage message, boolean keepAlive) {
-        HttpHeaderUtil.setKeepAlive(message, keepAlive);
+        HttpUtil.setKeepAlive(message, keepAlive);
     }
 
     /**
      * @deprecated Use {@link #get(CharSequence)} instead.
-     *
-     * @see {@link #getHeader(HttpMessage, CharSequence)}
      */
     @Deprecated
     public static String getHeader(HttpMessage message, String name) {
@@ -1062,7 +941,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#getContentLength(HttpMessage)} instead.
+     * @deprecated Use {@link HttpUtil#getContentLength(HttpMessage)} instead.
      *
      * Returns the length of the content.  Please note that this value is
      * not retrieved from {@link HttpContent#content()} but from the
@@ -1077,11 +956,11 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      */
     @Deprecated
     public static long getContentLength(HttpMessage message) {
-        return HttpHeaderUtil.getContentLength(message);
+        return HttpUtil.getContentLength(message);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#getContentLength(HttpMessage, long)} instead.
+     * @deprecated Use {@link HttpUtil#getContentLength(HttpMessage, long)} instead.
      *
      * Returns the length of the content.  Please note that this value is
      * not retrieved from {@link HttpContent#content()} but from the
@@ -1094,15 +973,15 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      */
     @Deprecated
     public static long getContentLength(HttpMessage message, long defaultValue) {
-        return HttpHeaderUtil.getContentLength(message, defaultValue);
+        return HttpUtil.getContentLength(message, defaultValue);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#setContentLength(HttpMessage, long)} instead.
+     * @deprecated Use {@link HttpUtil#setContentLength(HttpMessage, long)} instead.
      */
     @Deprecated
     public static void setContentLength(HttpMessage message, long length) {
-        HttpHeaderUtil.setContentLength(message, length);
+        HttpUtil.setContentLength(message, length);
     }
 
     /**
@@ -1182,18 +1061,18 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#is100ContinueExpected(HttpMessage)} instead.
+     * @deprecated Use {@link HttpUtil#is100ContinueExpected(HttpMessage)} instead.
      *
      * Returns {@code true} if and only if the specified message contains the
      * {@code "Expect: 100-continue"} header.
      */
     @Deprecated
     public static boolean is100ContinueExpected(HttpMessage message) {
-        return HttpHeaderUtil.is100ContinueExpected(message);
+        return HttpUtil.is100ContinueExpected(message);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#set100ContinueExpected(HttpMessage, boolean)} instead.
+     * @deprecated Use {@link HttpUtil#set100ContinueExpected(HttpMessage, boolean)} instead.
      *
      * Sets the {@code "Expect: 100-continue"} header to the specified message.
      * If there is any existing {@code "Expect"} header, they are replaced with
@@ -1201,25 +1080,25 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      */
     @Deprecated
     public static void set100ContinueExpected(HttpMessage message) {
-        HttpHeaderUtil.set100ContinueExpected(message, true);
+        HttpUtil.set100ContinueExpected(message, true);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#set100ContinueExpected(HttpMessage, boolean)} instead.
+     * @deprecated Use {@link HttpUtil#set100ContinueExpected(HttpMessage, boolean)} instead.
      *
      * Sets or removes the {@code "Expect: 100-continue"} header to / from the
-     * specified message.  If the specified {@code value} is {@code true},
+     * specified message.  If {@code set} is {@code true},
      * the {@code "Expect: 100-continue"} header is set and all other previous
      * {@code "Expect"} headers are removed.  Otherwise, all {@code "Expect"}
      * headers are removed completely.
      */
     @Deprecated
     public static void set100ContinueExpected(HttpMessage message, boolean set) {
-        HttpHeaderUtil.set100ContinueExpected(message, set);
+        HttpUtil.set100ContinueExpected(message, set);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#isTransferEncodingChunked(HttpMessage)} instead.
+     * @deprecated Use {@link HttpUtil#isTransferEncodingChunked(HttpMessage)} instead.
      *
      * Checks to see if the transfer encoding in a specified {@link HttpMessage} is chunked
      *
@@ -1228,93 +1107,72 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      */
     @Deprecated
     public static boolean isTransferEncodingChunked(HttpMessage message) {
-        return HttpHeaderUtil.isTransferEncodingChunked(message);
+        return HttpUtil.isTransferEncodingChunked(message);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#setTransferEncodingChunked(HttpMessage, boolean)} instead.
+     * @deprecated Use {@link HttpUtil#setTransferEncodingChunked(HttpMessage, boolean)} instead.
      */
     @Deprecated
     public static void removeTransferEncodingChunked(HttpMessage m) {
-        HttpHeaderUtil.setTransferEncodingChunked(m, false);
+        HttpUtil.setTransferEncodingChunked(m, false);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#setTransferEncodingChunked(HttpMessage, boolean)} instead.
+     * @deprecated Use {@link HttpUtil#setTransferEncodingChunked(HttpMessage, boolean)} instead.
      */
     @Deprecated
     public static void setTransferEncodingChunked(HttpMessage m) {
-        HttpHeaderUtil.setTransferEncodingChunked(m, true);
+        HttpUtil.setTransferEncodingChunked(m, true);
     }
 
     /**
-     * @deprecated Use {@link HttpHeaderUtil#isContentLengthSet(HttpMessage)} instead.
+     * @deprecated Use {@link HttpUtil#isContentLengthSet(HttpMessage)} instead.
      */
     @Deprecated
     public static boolean isContentLengthSet(HttpMessage m) {
-        return HttpHeaderUtil.isContentLengthSet(m);
+        return HttpUtil.isContentLengthSet(m);
     }
 
     /**
-     * @deprecated Use {@link AsciiString#equalsIgnoreCase(CharSequence, CharSequence)} instead.
+     * @deprecated Use {@link AsciiString#contentEqualsIgnoreCase(CharSequence, CharSequence)} instead.
      */
     @Deprecated
     public static boolean equalsIgnoreCase(CharSequence name1, CharSequence name2) {
-        return AsciiString.equalsIgnoreCase(name1, name2);
+        return AsciiString.contentEqualsIgnoreCase(name1, name2);
     }
 
     static void encode(HttpHeaders headers, ByteBuf buf) throws Exception {
-        if (headers instanceof DefaultHttpHeaders) {
-            ((DefaultHttpHeaders) headers).encode(buf);
-        } else {
-            for (Entry<String, String> header: headers) {
-                encode(header.getKey(), header.getValue(), buf);
-            }
+        Iterator<Entry<CharSequence, CharSequence>> iter = headers.iteratorCharSequence();
+        while (iter.hasNext()) {
+            Entry<CharSequence, CharSequence> header = iter.next();
+            HttpHeadersEncoder.encoderHeader(header.getKey(), header.getValue(), buf);
         }
     }
 
-    @SuppressWarnings("deprecation")
-    private static void encode(CharSequence key, CharSequence value, ByteBuf buf) {
-        encodeAscii(key, buf);
-        buf.writeBytes(HEADER_SEPERATOR);
-        encodeAscii(value, buf);
-        buf.writeBytes(CRLF);
-    }
-
-    @Deprecated
     public static void encodeAscii(CharSequence seq, ByteBuf buf) {
         if (seq instanceof AsciiString) {
             ByteBufUtil.copy((AsciiString) seq, 0, buf, seq.length());
         } else {
-            encodeAscii0(seq, buf);
-        }
-    }
-
-    static void encodeAscii0(CharSequence seq, ByteBuf buf) {
-        int length = seq.length();
-        for (int i = 0 ; i < length; i++) {
-            buf.writeByte((byte) seq.charAt(i));
+            HttpUtil.encodeAscii0(seq, buf);
         }
     }
 
     /**
      * @deprecated Use {@link AsciiString} instead.
-     *
+     * <p>
      * Create a new {@link CharSequence} which is optimized for reuse as {@link HttpHeaders} name or value.
      * So if you have a Header name or value that you want to reuse you should make use of this.
      */
     @Deprecated
     public static CharSequence newEntity(String name) {
-        if (name == null) {
-            throw new NullPointerException("name");
-        }
         return new AsciiString(name);
     }
 
     protected HttpHeaders() { }
 
     /**
-     * @see {@link #get(CharSequence)}
+     * @see #get(CharSequence)
      */
     public abstract String get(String name);
 
@@ -1324,6 +1182,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      *
      * @param name The name of the header to search
      * @return The first header value or {@code null} if there is no such header
+     * @see #getAsString(CharSequence)
      */
     public String get(CharSequence name) {
         return get(name.toString());
@@ -1408,7 +1267,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     public abstract long getTimeMillis(CharSequence name, long defaultValue);
 
     /**
-     * @see {@link #getAll(CharSequence)}
+     * @see #getAll(CharSequence)
      */
     public abstract List<String> getAll(String name);
 
@@ -1418,6 +1277,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      * @param name The name of the headers to search
      * @return A {@link List} of header values which will be empty if no values
      *         are found
+     * @see #getAllAsString(CharSequence)
      */
     public List<String> getAll(CharSequence name) {
         return getAll(name.toString());
@@ -1427,6 +1287,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      * Returns a new {@link List} that contains all headers in this object.  Note that modifying the
      * returned {@link List} will not affect the state of this object.  If you intend to enumerate over the header
      * entries only, use {@link #iterator()} instead, which has much less overhead.
+     * @see #iteratorCharSequence()
      */
     public abstract List<Map.Entry<String, String>> entries();
 
@@ -1434,6 +1295,19 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
      * @see {@link #contains(CharSequence)}
      */
     public abstract boolean contains(String name);
+
+    /**
+     * @deprecated It is preferred to use {@link #iteratorCharSequence()} unless you need {@link String}.
+     * If {@link String} is required then use {@link #iteratorAsString()}.
+     */
+    @Deprecated
+    @Override
+    public abstract Iterator<Entry<String, String>> iterator();
+
+    /**
+     * @return Iterator over the name/value header pairs.
+     */
+    public abstract Iterator<Entry<CharSequence, CharSequence>> iteratorCharSequence();
 
     /**
      * Checks to see if there is a header with the specified name
@@ -1451,6 +1325,11 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     public abstract boolean isEmpty();
 
     /**
+     * Returns the number of headers in this object.
+     */
+    public abstract int size();
+
+    /**
      * Returns a new {@link Set} that contains the names of all headers in this object.  Note that modifying the
      * returned {@link Set} will not affect the state of this object.  If you intend to enumerate over the header
      * entries only, use {@link #iterator()} instead, which has much less overhead.
@@ -1458,7 +1337,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     public abstract Set<String> names();
 
     /**
-     * @see {@link #add(CharSequence, Object)}
+     * @see #add(CharSequence, Object)
      */
     public abstract HttpHeaders add(String name, Object value);
 
@@ -1480,7 +1359,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     /**
-     * @see {@link #add(CharSequence, Iterable)}
+     * @see #add(CharSequence, Iterable)
      */
     public abstract HttpHeaders add(String name, Iterable<?> values);
 
@@ -1537,7 +1416,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     public abstract HttpHeaders addShort(CharSequence name, short value);
 
     /**
-     * @see {@link #set(CharSequence, Object)}
+     * @see #set(CharSequence, Object)
      */
     public abstract HttpHeaders set(String name, Object value);
 
@@ -1559,7 +1438,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     /**
-     * @see {@link #set(CharSequence, Iterable)}
+     * @see #set(CharSequence, Iterable)
      */
     public abstract HttpHeaders set(String name, Iterable<?> values);
 
@@ -1600,10 +1479,8 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
             return this;
         }
 
-        try {
-            headers.forEachEntry(addAllVisitor());
-        } catch (Exception e) {
-            PlatformDependent.throwException(e);
+        for (Entry<String, String> entry : headers) {
+            add(entry.getKey(), entry.getValue());
         }
         return this;
     }
@@ -1621,10 +1498,8 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
             return this;
         }
 
-        try {
-            headers.forEachEntry(setAllVisitor());
-        } catch (Exception e) {
-            PlatformDependent.throwException(e);
+        for (Entry<String, String> entry : headers) {
+            set(entry.getKey(), entry.getValue());
         }
         return this;
     }
@@ -1646,7 +1521,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     public abstract HttpHeaders setShort(CharSequence name, short value);
 
     /**
-     * @see {@link #remove(CharSequence)}
+     * @see #remove(CharSequence)
      */
     public abstract HttpHeaders remove(String name);
 
@@ -1668,7 +1543,7 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     public abstract HttpHeaders clear();
 
     /**
-     * @see {@link #contains(CharSequence, CharSequence, boolean)}
+     * @see #contains(CharSequence, CharSequence, boolean)
      */
     public boolean contains(String name, String value, boolean ignoreCase) {
         List<String> values = getAll(name);
@@ -1691,44 +1566,82 @@ public abstract class HttpHeaders implements Iterable<Map.Entry<String, String>>
     }
 
     /**
-     * Returns {@code true} if a header with the name and value exists.
-     *
-     * @param name         the headername
-     * @param value        the value
-     * @param ignoreCase   {@code true} if case should be ignored
-     * @return contains    {@code true} if it contains it {@code false} otherwise
+     * Returns {@code true} if a header with the {@code name} and {@code value} exists, {@code false} otherwise.
+     * This also handles multiple values that are seperated with a {@code ,}.
+     * <p>
+     * If {@code ignoreCase} is {@code true} then a case insensitive compare is done on the value.
+     * @param name the name of the header to find
+     * @param value the value of the header to find
+     * @param ignoreCase {@code true} then a case insensitive compare is run to compare values.
+     * otherwise a case sensitive compare is run to compare values.
+     */
+    public boolean containsValue(CharSequence name, CharSequence value, boolean ignoreCase) {
+        List<String> values = getAll(name);
+        if (values.isEmpty()) {
+            return false;
+        }
+
+        for (String v: values) {
+            if (contains(v, value, ignoreCase)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean contains(String value, CharSequence expected, boolean ignoreCase) {
+        String[] parts = value.split(",");
+        if (ignoreCase) {
+            for (String s: parts) {
+                if (AsciiString.contentEqualsIgnoreCase(expected, s.trim())) {
+                    return true;
+                }
+            }
+        } else {
+            for (String s: parts) {
+                if (AsciiString.contentEquals(expected, s.trim())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@link Headers#get(Object)} and convert the result to a {@link String}.
+     * @param name the name of the header to retrieve
+     * @return the first header value if the header is found. {@code null} if there's no such header.
+     */
+    public final String getAsString(CharSequence name) {
+        return get(name);
+    }
+
+    /**
+     * {@link Headers#getAll(Object)} and convert each element of {@link List} to a {@link String}.
+     * @param name the name of the header to retrieve
+     * @return a {@link List} of header values or an empty {@link List} if no values are found.
+     */
+    public final List<String> getAllAsString(CharSequence name) {
+        return getAll(name);
+    }
+
+    /**
+     * {@link Iterator} that converts each {@link Entry}'s key and value to a {@link String}.
+     */
+    public final Iterator<Entry<String, String>> iteratorAsString() {
+        return iterator();
+    }
+
+    /**
+     * Returns {@code true} if a header with the {@code name} and {@code value} exists, {@code false} otherwise.
+     * <p>
+     * If {@code ignoreCase} is {@code true} then a case insensitive compare is done on the value.
+     * @param name the name of the header to find
+     * @param value the value of the header to find
+     * @param ignoreCase {@code true} then a case insensitive compare is run to compare values.
+     * otherwise a case sensitive compare is run to compare values.
      */
     public boolean contains(CharSequence name, CharSequence value, boolean ignoreCase) {
         return contains(name.toString(), value.toString(), ignoreCase);
     }
-
-    /**
-     * Provide a means of iterating over elements in this map with low GC
-     *
-     * @param visitor The visitor which will visit each element in this map
-     * @return The last entry before iteration stopped or {@code null} if iteration went past the end
-     */
-    public abstract Map.Entry<CharSequence, CharSequence> forEachEntry(EntryVisitor<CharSequence> visitor)
-            throws Exception;
-
-    private EntryVisitor<CharSequence> setAllVisitor() {
-        return new EntryVisitor<CharSequence>() {
-            @Override
-            public boolean visit(Entry<CharSequence, CharSequence> entry) {
-                set(entry.getKey(), entry.getValue());
-                return true;
-            }
-        };
-    }
-
-    private EntryVisitor<CharSequence> addAllVisitor() {
-        return new EntryVisitor<CharSequence>() {
-            @Override
-            public boolean visit(Entry<CharSequence, CharSequence> entry) {
-                add(entry.getKey(), entry.getValue());
-                return true;
-            }
-        };
-    }
-
 }

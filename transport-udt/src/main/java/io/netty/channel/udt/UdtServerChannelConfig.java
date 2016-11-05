@@ -23,6 +23,7 @@ import io.netty.channel.ChannelException;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.MessageSizeEstimator;
 import io.netty.channel.RecvByteBufAllocator;
+import io.netty.channel.WriteBufferWaterMark;
 
 /**
  * A {@link ChannelConfig} for a {@link UdtServerChannel}.
@@ -50,6 +51,7 @@ public interface UdtServerChannelConfig extends UdtChannelConfig {
     UdtServerChannelConfig setConnectTimeoutMillis(int connectTimeoutMillis);
 
     @Override
+    @Deprecated
     UdtServerChannelConfig setMaxMessagesPerRead(int maxMessagesPerRead);
 
     @Override
@@ -96,6 +98,9 @@ public interface UdtServerChannelConfig extends UdtChannelConfig {
 
     @Override
     UdtServerChannelConfig setWriteBufferLowWaterMark(int writeBufferLowWaterMark);
+
+    @Override
+    UdtServerChannelConfig setWriteBufferWaterMark(WriteBufferWaterMark writeBufferWaterMark);
 
     @Override
     UdtServerChannelConfig setMessageSizeEstimator(MessageSizeEstimator estimator);
