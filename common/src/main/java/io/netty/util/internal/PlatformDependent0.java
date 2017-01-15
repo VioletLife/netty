@@ -58,36 +58,43 @@ final class PlatformDependent0 {
     private static final boolean UNALIGNED;
 
     static {
-        final ByteBuffer direct = ByteBuffer.allocateDirect(1);
+        final ByteBuffer direct;
         final Field addressField;
-        // attempt to access field Buffer#address
-        final Object maybeAddressField = AccessController.doPrivileged(new PrivilegedAction<Object>() {
-            @Override
-            public Object run() {
-                try {
-                    final Field field = Buffer.class.getDeclaredField("address");
-                    field.setAccessible(true);
-                    // if direct really is a direct buffer, address will be non-zero
-                    if (field.getLong(direct) == 0) {
-                        return null;
-                    }
-                    return field;
-                } catch (IllegalAccessException e) {
-                    return e;
-                } catch (NoSuchFieldException e) {
-                    return e;
-                } catch (SecurityException e) {
-                    return e;
-                }
-            }
-        });
 
-        if (maybeAddressField instanceof Field) {
-            addressField = (Field) maybeAddressField;
-            logger.debug("java.nio.Buffer.address: available");
-        } else {
-            logger.debug("java.nio.Buffer.address: unavailable", (Exception) maybeAddressField);
+        if (PlatformDependent.isExplicitNoUnsafe()) {
+            direct = null;
             addressField = null;
+        } else {
+            direct = ByteBuffer.allocateDirect(1);
+            // attempt to access field Buffer#address
+            final Object maybeAddressField = AccessController.doPrivileged(new PrivilegedAction<Object>() {
+                @Override
+                public Object run() {
+                    try {
+                        final Field field = Buffer.class.getDeclaredField("address");
+                        field.setAccessible(true);
+                        // if direct really is a direct buffer, address will be non-zero
+                        if (field.getLong(direct) == 0) {
+                            return null;
+                        }
+                        return field;
+                    } catch (IllegalAccessException e) {
+                        return e;
+                    } catch (NoSuchFieldException e) {
+                        return e;
+                    } catch (SecurityException e) {
+                        return e;
+                    }
+                }
+            });
+
+            if (maybeAddressField instanceof Field) {
+                addressField = (Field) maybeAddressField;
+                logger.debug("java.nio.Buffer.address: available");
+            } else {
+                logger.debug("java.nio.Buffer.address: unavailable", (Exception) maybeAddressField);
+                addressField = null;
+            }
         }
 
         Unsafe unsafe;
@@ -224,16 +231,8 @@ final class PlatformDependent0 {
                         Method unalignedMethod = bitsClass.getDeclaredMethod("unaligned");
                         unalignedMethod.setAccessible(true);
                         return unalignedMethod.invoke(null);
-                    } catch (ClassNotFoundException e) {
-                        return e;
-                    } catch (NoSuchMethodException e) {
-                        return e;
-                    } catch (InvocationTargetException e) {
-                        return e;
-                    } catch (IllegalAccessException e) {
-                        return e;
-                    } catch (SecurityException e) {
-                        return e;
+                    } catch (Throwable cause) {
+                        return cause;
                     }
                 }
             });
@@ -245,8 +244,8 @@ final class PlatformDependent0 {
                 String arch = SystemPropertyUtil.get("os.arch", "");
                 //noinspection DynamicRegexReplaceableByCompiledPattern
                 unaligned = arch.matches("^(i[3-6]86|x86(_64)?|x64|amd64)$");
-                Exception e = (Exception) maybeUnaligned;
-                logger.debug("java.nio.Bits.unaligned: unavailable, " + unaligned, e);
+                Throwable t = (Throwable) maybeUnaligned;
+                logger.debug("java.nio.Bits.unaligned: unavailable {}", unaligned, t);
             }
 
             UNALIGNED = unaligned;
@@ -255,7 +254,9 @@ final class PlatformDependent0 {
         logger.debug("java.nio.DirectByteBuffer.<init>(long, int): {}",
                 DIRECT_BUFFER_CONSTRUCTOR != null ? "available" : "unavailable");
 
-        freeDirectBuffer(direct);
+        if (direct != null) {
+            freeDirectBuffer(direct);
+        }
     }
 
     static boolean isUnaligned() {
@@ -556,21 +557,6 @@ final class PlatformDependent0 {
 
     static int hashCodeAsciiSanitize(byte value) {
         return value & 0x1f;
-    }
-
-    static <U, W> AtomicReferenceFieldUpdater<U, W> newAtomicReferenceFieldUpdater(
-            Class<? super U> tclass, String fieldName) throws Exception {
-        return new UnsafeAtomicReferenceFieldUpdater<U, W>(UNSAFE, tclass, fieldName);
-    }
-
-    static <T> AtomicIntegerFieldUpdater<T> newAtomicIntegerFieldUpdater(
-            Class<? super T> tclass, String fieldName) throws Exception {
-        return new UnsafeAtomicIntegerFieldUpdater<T>(UNSAFE, tclass, fieldName);
-    }
-
-    static <T> AtomicLongFieldUpdater<T> newAtomicLongFieldUpdater(
-            Class<? super T> tclass, String fieldName) throws Exception {
-        return new UnsafeAtomicLongFieldUpdater<T>(UNSAFE, tclass, fieldName);
     }
 
     static ClassLoader getClassLoader(final Class<?> clazz) {

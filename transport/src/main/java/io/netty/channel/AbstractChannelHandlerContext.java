@@ -24,7 +24,6 @@ import io.netty.util.ReferenceCountUtil;
 import io.netty.util.ResourceLeakHint;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.OrderedEventExecutor;
-import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.PromiseNotificationUtil;
 import io.netty.util.internal.ThrowableUtil;
 import io.netty.util.internal.ObjectUtil;
@@ -43,17 +42,8 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
     volatile AbstractChannelHandlerContext next;
     volatile AbstractChannelHandlerContext prev;
 
-    private static final AtomicIntegerFieldUpdater<AbstractChannelHandlerContext> HANDLER_STATE_UPDATER;
-
-    static {
-        AtomicIntegerFieldUpdater<AbstractChannelHandlerContext> handlerStateUpdater = PlatformDependent
-                .newAtomicIntegerFieldUpdater(AbstractChannelHandlerContext.class, "handlerState");
-        if (handlerStateUpdater == null) {
-            handlerStateUpdater = AtomicIntegerFieldUpdater
-                    .newUpdater(AbstractChannelHandlerContext.class, "handlerState");
-        }
-        HANDLER_STATE_UPDATER = handlerStateUpdater;
-    }
+    private static final AtomicIntegerFieldUpdater<AbstractChannelHandlerContext> HANDLER_STATE_UPDATER =
+            AtomicIntegerFieldUpdater.newUpdater(AbstractChannelHandlerContext.class, "handlerState");
 
     /**
      * {@link ChannelHandler#handlerAdded(ChannelHandlerContext)} is about to be called.
@@ -988,7 +978,7 @@ abstract class AbstractChannelHandlerContext extends DefaultAttributeMap
      * Makes best possible effort to detect if {@link ChannelHandler#handlerAdded(ChannelHandlerContext)} was called
      * yet. If not return {@code false} and if called or could not detect return {@code true}.
      *
-     * If this method returns {@code true} we will not invoke the {@link ChannelHandler} but just forward the event.
+     * If this method returns {@code false} we will not invoke the {@link ChannelHandler} but just forward the event.
      * This is needed as {@link DefaultChannelPipeline} may already put the {@link ChannelHandler} in the linked-list
      * but not called {@link ChannelHandler#handlerAdded(ChannelHandlerContext)}.
      */

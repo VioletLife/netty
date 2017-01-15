@@ -19,9 +19,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.util.AbstractReferenceCounted;
 import io.netty.util.ReferenceCounted;
-import io.netty.util.ResourceLeak;
 import io.netty.util.ResourceLeakDetector;
 import io.netty.util.ResourceLeakDetectorFactory;
+import io.netty.util.ResourceLeakTracker;
 import io.netty.util.internal.PlatformDependent;
 import io.netty.util.internal.StringUtil;
 import io.netty.util.internal.SystemPropertyUtil;
@@ -35,6 +35,7 @@ import org.apache.tomcat.jni.SSLContext;
 import java.security.AccessController;
 import java.security.PrivateKey;
 import java.security.PrivilegedAction;
+import java.security.cert.CertPathValidatorException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
@@ -107,7 +108,7 @@ public abstract class ReferenceCountedOpenSslContext extends SslContext implemen
     private final int mode;
 
     // Reference Counting
-    private final ResourceLeak leak;
+    private final ResourceLeakTracker<ReferenceCountedOpenSslContext> leak;
     private final AbstractReferenceCounted refCnt = new AbstractReferenceCounted() {
         @Override
         public ReferenceCounted touch(Object hint) {
@@ -122,7 +123,8 @@ public abstract class ReferenceCountedOpenSslContext extends SslContext implemen
         protected void deallocate() {
             destroy();
             if (leak != null) {
-                leak.close();
+                boolean closed = leak.close(ReferenceCountedOpenSslContext.this);
+                assert closed;
             }
         }
     };
@@ -216,7 +218,7 @@ public abstract class ReferenceCountedOpenSslContext extends SslContext implemen
         if (mode != SSL.SSL_MODE_SERVER && mode != SSL.SSL_MODE_CLIENT) {
             throw new IllegalArgumentException("mode most be either SSL.SSL_MODE_SERVER or SSL.SSL_MODE_CLIENT");
         }
-        leak = leakDetection ? leakDetector.open(this) : null;
+        leak = leakDetection ? leakDetector.track(this) : null;
         this.mode = mode;
         this.clientAuth = isServer() ? checkNotNull(clientAuth, "clientAuth") : ClientAuth.NONE;
 
@@ -268,6 +270,10 @@ public abstract class ReferenceCountedOpenSslContext extends SslContext implemen
                 SSLContext.setOptions(ctx, SSL.SSL_OP_SINGLE_ECDH_USE);
                 SSLContext.setOptions(ctx, SSL.SSL_OP_SINGLE_DH_USE);
                 SSLContext.setOptions(ctx, SSL.SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION);
+
+                // We do not support compression as the moment so we should explicitly disable it.
+                SSLContext.setOptions(ctx, SSL.SSL_OP_NO_COMPRESSION);
+
                 // Disable ticket support by default to be more inline with SSLEngineImpl of the JDK.
                 // This also let SSLSession.getId() work the same way for the JDK implementation and the OpenSSLEngine.
                 // If tickets are supported SSLSession.getId() will only return an ID on the server-side if it could
@@ -605,7 +611,10 @@ public abstract class ReferenceCountedOpenSslContext extends SslContext implemen
                 e.initCause(cause);
                 engine.handshakeException = e;
 
+                // Try to extract the correct error code that should be used.
                 if (cause instanceof OpenSslCertificateException) {
+                    // This will never return a negative error code as its validated when constructing the
+                    // OpenSslCertificateException.
                     return ((OpenSslCertificateException) cause).errorCode();
                 }
                 if (cause instanceof CertificateExpiredException) {
@@ -614,9 +623,34 @@ public abstract class ReferenceCountedOpenSslContext extends SslContext implemen
                 if (cause instanceof CertificateNotYetValidException) {
                     return CertificateVerifier.X509_V_ERR_CERT_NOT_YET_VALID;
                 }
-                if (PlatformDependent.javaVersion() >= 7 && cause instanceof CertificateRevokedException) {
-                    return CertificateVerifier.X509_V_ERR_CERT_REVOKED;
+                if (PlatformDependent.javaVersion() >= 7) {
+                    if (cause instanceof CertificateRevokedException) {
+                        return CertificateVerifier.X509_V_ERR_CERT_REVOKED;
+                    }
+
+                    // The X509TrustManagerImpl uses a Validator which wraps a CertPathValidatorException into
+                    // an CertificateException. So we need to handle the wrapped CertPathValidatorException to be
+                    // able to send the correct alert.
+                    Throwable wrapped = cause.getCause();
+                    while (wrapped != null) {
+                        if (wrapped instanceof CertPathValidatorException) {
+                            CertPathValidatorException ex = (CertPathValidatorException) wrapped;
+                            CertPathValidatorException.Reason reason = ex.getReason();
+                            if (reason == CertPathValidatorException.BasicReason.EXPIRED) {
+                                return CertificateVerifier.X509_V_ERR_CERT_HAS_EXPIRED;
+                            }
+                            if (reason == CertPathValidatorException.BasicReason.NOT_YET_VALID) {
+                                return CertificateVerifier.X509_V_ERR_CERT_NOT_YET_VALID;
+                            }
+                            if (reason == CertPathValidatorException.BasicReason.REVOKED) {
+                                return CertificateVerifier.X509_V_ERR_CERT_REVOKED;
+                            }
+                        }
+                        wrapped = wrapped.getCause();
+                    }
                 }
+
+                // Could not detect a specific error code to use, so fallback to a default code.
                 return CertificateVerifier.X509_V_ERR_UNSPECIFIED;
             }
         }

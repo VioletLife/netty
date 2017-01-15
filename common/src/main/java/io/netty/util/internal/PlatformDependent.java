@@ -78,6 +78,9 @@ public final class PlatformDependent {
     private static final Pattern MAX_DIRECT_MEMORY_SIZE_ARG_PATTERN = Pattern.compile(
             "\\s*-XX:MaxDirectMemorySize\\s*=\\s*([0-9]+)\\s*([kKmMgG]?)\\s*$");
 
+    // this must be initialized before any code below triggers initialization of PlatformDependent0
+    private static final boolean IS_EXPLICIT_NO_UNSAFE = explicitNoUnsafe0();
+
     private static final boolean IS_ANDROID = isAndroid0();
     private static final boolean IS_WINDOWS = isWindows0();
     private static volatile Boolean IS_ROOT;
@@ -86,7 +89,6 @@ public final class PlatformDependent {
 
     private static final boolean CAN_ENABLE_TCP_NODELAY_BY_DEFAULT = !isAndroid();
 
-    private static final boolean IS_EXPLICIT_NO_UNSAFE = explicitNoUnsafe0();
     private static final boolean HAS_UNSAFE = hasUnsafe0();
     private static final boolean CAN_USE_CHM_V8 = HAS_UNSAFE && JAVA_VERSION < 8;
     private static final boolean DIRECT_BUFFER_PREFERRED =
@@ -98,7 +100,7 @@ public final class PlatformDependent {
     private static final int DEFAULT_MAX_MPSC_CAPACITY =  MPSC_CHUNK_SIZE * MPSC_CHUNK_SIZE;
     private static final int MAX_ALLOWED_MPSC_CAPACITY = Pow2.MAX_POW2;
 
-    private static final long BYTE_ARRAY_BASE_OFFSET = PlatformDependent0.byteArrayBaseOffset();
+    private static final long BYTE_ARRAY_BASE_OFFSET = byteArrayBaseOffset0();
 
     private static final boolean HAS_JAVASSIST = hasJavassist0();
 
@@ -796,57 +798,6 @@ public final class PlatformDependent {
         }
     }
 
-    /**
-     * Create a new optimized {@link AtomicReferenceFieldUpdater} or {@code null} if it
-     * could not be created. Because of this the caller need to check for {@code null} and if {@code null} is returned
-     * use {@link AtomicReferenceFieldUpdater#newUpdater(Class, Class, String)} as fallback.
-     */
-    public static <U, W> AtomicReferenceFieldUpdater<U, W> newAtomicReferenceFieldUpdater(
-            Class<? super U> tclass, String fieldName) {
-        if (hasUnsafe()) {
-            try {
-                return PlatformDependent0.newAtomicReferenceFieldUpdater(tclass, fieldName);
-            } catch (Throwable ignore) {
-                // ignore
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Create a new optimized {@link AtomicIntegerFieldUpdater} or {@code null} if it
-     * could not be created. Because of this the caller need to check for {@code null} and if {@code null} is returned
-     * use {@link AtomicIntegerFieldUpdater#newUpdater(Class, String)} as fallback.
-     */
-    public static <T> AtomicIntegerFieldUpdater<T> newAtomicIntegerFieldUpdater(
-            Class<? super T> tclass, String fieldName) {
-        if (hasUnsafe()) {
-            try {
-                return PlatformDependent0.newAtomicIntegerFieldUpdater(tclass, fieldName);
-            } catch (Throwable ignore) {
-                // ignore
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Create a new optimized {@link AtomicLongFieldUpdater} or {@code null} if it
-     * could not be created. Because of this the caller need to check for {@code null} and if {@code null} is returned
-     * use {@link AtomicLongFieldUpdater#newUpdater(Class, String)} as fallback.
-     */
-    public static <T> AtomicLongFieldUpdater<T> newAtomicLongFieldUpdater(
-            Class<? super T> tclass, String fieldName) {
-        if (hasUnsafe()) {
-            try {
-                return PlatformDependent0.newAtomicLongFieldUpdater(tclass, fieldName);
-            } catch (Throwable ignore) {
-                // ignore
-            }
-        }
-        return null;
-    }
-
     private static final class Mpsc {
         private static final boolean USE_MPSC_CHUNKED_ARRAY_QUEUE;
 
@@ -1116,6 +1067,10 @@ public final class PlatformDependent {
         }
     }
 
+    static boolean isExplicitNoUnsafe() {
+        return IS_EXPLICIT_NO_UNSAFE;
+    }
+
     private static boolean explicitNoUnsafe0() {
         final boolean noUnsafe = SystemPropertyUtil.getBoolean("io.netty.noUnsafe", false);
         logger.debug("-Dio.netty.noUnsafe: {}", noUnsafe);
@@ -1163,9 +1118,11 @@ public final class PlatformDependent {
 
     private static long maxDirectMemory0() {
         long maxDirectMemory = 0;
+        ClassLoader systemClassLoader = null;
         try {
             // Try to get from sun.misc.VM.maxDirectMemory() which should be most accurate.
-            Class<?> vmClass = Class.forName("sun.misc.VM", true, getSystemClassLoader());
+            systemClassLoader = getSystemClassLoader();
+            Class<?> vmClass = Class.forName("sun.misc.VM", true, systemClassLoader);
             Method m = vmClass.getDeclaredMethod("maxDirectMemory");
             maxDirectMemory = ((Number) m.invoke(null)).longValue();
         } catch (Throwable ignored) {
@@ -1180,9 +1137,9 @@ public final class PlatformDependent {
             // Now try to get the JVM option (-XX:MaxDirectMemorySize) and parse it.
             // Note that we are using reflection because Android doesn't have these classes.
             Class<?> mgmtFactoryClass = Class.forName(
-                    "java.lang.management.ManagementFactory", true, getSystemClassLoader());
+                    "java.lang.management.ManagementFactory", true, systemClassLoader);
             Class<?> runtimeClass = Class.forName(
-                    "java.lang.management.RuntimeMXBean", true, getSystemClassLoader());
+                    "java.lang.management.RuntimeMXBean", true, systemClassLoader);
 
             Object runtime = mgmtFactoryClass.getDeclaredMethod("getRuntimeMXBean").invoke(null);
 
@@ -1376,6 +1333,13 @@ public final class PlatformDependent {
             return -1;
         }
         return PlatformDependent0.addressSize();
+    }
+
+    private static long byteArrayBaseOffset0() {
+        if (!hasUnsafe()) {
+            return -1;
+        }
+        return PlatformDependent0.byteArrayBaseOffset();
     }
 
     private static boolean equalsSafe(byte[] bytes1, int startPos1, byte[] bytes2, int startPos2, int length) {
